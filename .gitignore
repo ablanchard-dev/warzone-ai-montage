@@ -1,0 +1,45 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# --- Media & montage outputs (kept local, never committed) ---
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.mp3
+*.wav
+*.flac
+
+# --- Calibration / debug frame dumps (regenerated locally) ---
+counter/
+counter_f10/
+scan/
+scan_f10/
+kills/
+frames/
+frames_ranked/
+banner/
+out_*/
+preview.png
+
+# --- User-specific HUD kill templates (create your own via calibrate.py) ---
+templates/
+
+# --- Generated ffmpeg filter scripts ---
+montage_*.txt
+
+# --- Local data / db ---
+*.db
+*.sqlite3
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# Keep the demo asset even though media is ignored above
+!docs/demo.gif
