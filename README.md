@@ -1,153 +1,153 @@
 # Warzone AI Montage
 
-> Génère automatiquement un montage des temps forts à partir d'un dossier de clips
-> **Call of Duty: Warzone**, en combinant vision par ordinateur (détection des kills
-> sur le HUD), analyse audio et transcription vocale.
+> Automatically builds a highlight montage from a folder of **Call of Duty: Warzone**
+> clips, combining computer vision (HUD kill detection), audio analysis and speech
+> transcription.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-template%20matching-5C3EE8?logo=opencv&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-render-007808?logo=ffmpeg&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-On lui donne un dossier de plusieurs clips/VOD, il repère les vrais temps forts
-(multikills, 2v1/3v1, squad wipes, victoires, moments proximity chat), garde les
-meilleurs toutes vidéos confondues, et monte un clip de 30 s à 2 min : voix bien
-présentes, musique en fond, coupes calées sur le tempo.
+Point it at a folder of clips/VODs and it finds the real highlights (multikills,
+2v1/3v1, squad wipes, victories, proximity-chat moments), keeps the best across all
+videos, and edits a 30 s–2 min clip: voices kept up front, music underneath, cuts
+synced to the beat.
 
-## Démo
+## Demo
 
-![Démo — montage généré automatiquement](docs/demo.gif)
+![Demo — automatically generated montage](docs/demo.gif)
 
-Montage produit sans intervention manuelle : kills détectés sur le HUD, sélectionnés et assemblés par le programme.
+Produced with no manual editing: kills detected on the HUD, selected and assembled by the program.
 
-## Comment ça marche — 3 signaux fusionnés
+## How it works — 3 fused signals
 
-| Signal | Méthode | Rôle |
+| Signal | Method | Role |
 |---|---|---|
-| Vision du HUD | Template matching (OpenCV) de l'icône de kill / mise à terre / élimination qui flashe à l'écran | Signal fiable : repère les kills indépendamment du son |
-| Densité d'action | Clustering temporel des kills rapprochés | Multikill / 2v1 / 3v1 / wipe → score élevé |
-| Voix / prox chat | Transcription Whisper + pics audio | Booste quand une voix tombe juste avant un kill (derniers mots) ou juste après (réactions) ; victoire détectée par OCR |
+| HUD vision | Template matching (OpenCV) of the kill / knock / elimination icon that flashes on screen | Reliable signal: detects kills independently of sound |
+| Action density | Temporal clustering of nearby kills | Multikill / 2v1 / 3v1 / wipe → high score |
+| Voice / prox chat | Whisper transcription + audio peaks | Boosts when a voice lands right before a kill (last words) or right after (reactions); victory detected via OCR |
 
-Les trois signaux sont notés ensemble, on garde les meilleurs moments, avec une
-durée d'extrait adaptative (un no-scope court, un clutch long) et la victoire en clôture.
+The three signals are scored together, the best moments are kept, with an adaptive
+clip length (a short no-scope, a long clutch) and the victory as the closer.
 
 ```
-   clips/ (plusieurs VOD)
+   clips/ (multiple VODs)
         |
         v
  [ vision.py ]   [ audio.py ]   [ killdetect.py ]
-  HUD template    pics + voix    compteur de kills
+  HUD template    peaks + voice   kill counter
         \_____________|_______________/
                       v
-                [ scoring.py ]   notation + selection globale
+                [ scoring.py ]   scoring + global selection
                       v
-                [ montage.py ]   coupes beat-sync + render ffmpeg
+                [ montage.py ]   beat-synced cuts + ffmpeg render
                       v
                  montage.mp4
 ```
 
 ## Stack
 
-- Python — pipeline modulaire (`wzmontage/`)
-- OpenCV — détection des kills par template matching sur le HUD
-- librosa / soundfile — analyse des pics d'action audio
-- faster-whisper (optionnel) — transcription du prox chat
-- pytesseract (optionnel) — OCR de l'écran de victoire
-- FFmpeg — découpe, beat-sync et rendu final
+- Python — modular pipeline (`wzmontage/`)
+- OpenCV — kill detection via HUD template matching
+- librosa / soundfile — audio action-peak analysis
+- faster-whisper (optional) — prox-chat transcription
+- pytesseract (optional) — victory-screen OCR
+- FFmpeg — cutting, beat-sync and final render
 
-## Prérequis système
+## System requirements
 
-- ffmpeg + ffprobe (obligatoire)
-- tesseract (optionnel, détection de victoire)
+- ffmpeg + ffprobe (required)
+- tesseract (optional, victory detection)
 
 ```bash
 sudo apt install ffmpeg tesseract-ocr        # Linux
 brew install ffmpeg tesseract                # macOS
-# Windows : winget install Gyan.FFmpeg
+# Windows: winget install Gyan.FFmpeg
 ```
 
 ## Installation
 
 ```bash
 pip install -r requirements.txt
-pip install faster-whisper   # optionnel : voix + sous-titres
-pip install pytesseract      # optionnel : détection de victoire
+pip install faster-whisper   # optional: voice + subtitles
+pip install pytesseract      # optional: victory detection
 ```
 
-## Utilisation
+## Usage
 
 ```bash
-# Montage à partir d'un dossier de clips + musique
-python main.py ./clips -m musique.mp3 -o montage.mp4
+# Montage from a folder of clips + music
+python main.py ./clips -m music.mp3 -o montage.mp4
 
-# Sans vision (si templates pas encore créés) : audio + voix
-python main.py ./clips -m musique.mp3 --no-vision
+# Without vision (if templates not created yet): audio + voice
+python main.py ./clips -m music.mp3 --no-vision
 
-# Sans transcription voix (plus rapide)
-python main.py ./clips -m musique.mp3 --no-voice
+# Without voice transcription (faster)
+python main.py ./clips -m music.mp3 --no-voice
 ```
 
-Format vertical TikTok : `width: 1080 / height: 1920` dans `config.yaml`.
-Sous-titres du prox chat incrustés : `output.subtitles: true` (Whisper requis).
+Vertical TikTok format: `width: 1080 / height: 1920` in `config.yaml`.
+Burned-in prox-chat subtitles: `output.subtitles: true` (Whisper required).
 
-Le pipeline tourne dès le départ avec audio + voix. La détection des kills par
-vision s'active une fois les templates créés (ci-dessous) et améliore nettement la sélection.
+The pipeline runs out of the box with audio + voice. Vision-based kill detection
+turns on once the templates are created (below) and noticeably improves the selection.
 
-## Calibrage des templates de kill
+## Calibrating the kill templates
 
-L'icône de kill dépend de la résolution / du HUD : on la capture depuis ses propres clips, une seule fois.
+The kill icon depends on your resolution / HUD, so you capture it from your own clips, once.
 
 ```bash
-# 1) Cadrer la zone autour de l'icône (vérifier preview.png) :
+# 1) Frame the area around the icon (check preview.png):
 python calibrate.py clip.mp4 -t 73.5 -r 0.42 0.46 0.06 0.06
 
-# 2) Sauvegarder le template :
+# 2) Save the template:
 python calibrate.py clip.mp4 -t 73.5 -r 0.42 0.46 0.06 0.06 --save-template templates/knock.png
 ```
 
-Créer `templates/knock.png`, `templates/elim.png`, `templates/kill.png`, puis
-reporter la zone de recherche dans `config.yaml > vision.search_region` (et `victory_region` pour le bandeau #1).
+Create `templates/knock.png`, `templates/elim.png`, `templates/kill.png`, then set
+the search area in `config.yaml > vision.search_region` (and `victory_region` for the #1 banner).
 
-Les templates sont spécifiques au setup : ils ne sont pas versionnés (`.gitignore`), chacun génère les siens.
+Templates are setup-specific: they are not versioned (`.gitignore`); everyone generates their own.
 
-## Réglages utiles (`config.yaml`)
+## Useful settings (`config.yaml`)
 
-| Paramètre | Effet |
+| Setting | Effect |
 |---|---|
-| `vision.threshold` | Plus bas = détecte plus de kills (et plus de faux positifs) |
-| `scoring.multikill_multiplier` / `wipe_multiplier` | Poids des gros enchaînements |
-| `scoring.voice_kill_multiplier` | Importance des moments « derniers mots » |
-| `editing.beat_sync` | Cale les coupes sur le tempo de la musique |
-| `editing.music_volume` / `game_audio_volume` | Équilibre musique / voix |
-| `editing.max_total_seconds` | Durée max du montage |
-| `output.subtitles` | Incruste le texte du prox chat |
+| `vision.threshold` | Lower = detects more kills (and more false positives) |
+| `scoring.multikill_multiplier` / `wipe_multiplier` | Weight of big chains |
+| `scoring.voice_kill_multiplier` | Importance of "last words" moments |
+| `editing.beat_sync` | Aligns cuts to the music tempo |
+| `editing.music_volume` / `game_audio_volume` | Music / voice balance |
+| `editing.max_total_seconds` | Max montage length |
+| `output.subtitles` | Burns in the prox-chat text |
 
 ## Architecture (`wzmontage/`)
 
-| Module | Responsabilité |
+| Module | Responsibility |
 |---|---|
-| `vision.py` | Template matching de l'icône de kill sur le HUD |
-| `killdetect.py` | Détection auto des kills via le compteur affiché à l'écran (sans calibrage) |
-| `audio.py` | Pics d'action + repérage des passages parlés |
-| `scoring.py` | Notation des moments + sélection globale multi-clips |
-| `montage.py` | Coupes beat-sync + assemblage FFmpeg |
-| `models.py` / `utils.py` | Types partagés + helpers (ffprobe, I/O) |
+| `vision.py` | Template matching of the kill icon on the HUD |
+| `killdetect.py` | Automatic kill detection via the on-screen counter (no calibration) |
+| `audio.py` | Action peaks + spoken-segment detection |
+| `scoring.py` | Moment scoring + global multi-clip selection |
+| `montage.py` | Beat-synced cuts + FFmpeg assembly |
+| `models.py` / `utils.py` | Shared types + helpers (ffprobe, I/O) |
 
-## Limites
+## Limitations
 
-- Audio sur une seule piste : on détecte la voix mais on ne sépare pas ennemi / équipe (le texte transcrit aide en partie).
-- Les templates dépendent de la résolution : à recréer si on change de réglages.
-- Whisper sur du son de jeu peut produire des transcriptions imparfaites.
-- C'est une première passe automatique solide, à affiner à la main pour de la pub.
-- Pour des clips d'autres joueurs : penser aux droits sur les vidéos sources.
+- Single audio track: voice is detected but enemy / team can't be separated (the transcript helps in part).
+- Templates are resolution-dependent: recreate them if you change settings.
+- Whisper on game audio can produce imperfect transcriptions.
+- This is a solid automatic first pass, to be refined by hand for polished content.
+- For other players' clips: mind the rights on the source videos.
 
 ## Roadmap
 
-- 1vX « pur » via lecture du compteur d'escouades du HUD
-- Modèle YOLOv8 entraîné sur le kill feed (alternative aux templates)
-- Speed-ramp / zoom + SFX sur la frame du kill
-- Autres jeux (Apex, Fortnite...) via le même pipeline modulaire
+- "Pure" 1vX via reading the HUD squad counter
+- YOLOv8 model trained on the kill feed (alternative to templates)
+- Speed-ramp / zoom + SFX on the kill frame
+- Other games (Apex, Fortnite…) via the same modular pipeline
 
-## Licence
+## License
 
-MIT — voir [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE).
