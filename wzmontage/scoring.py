@@ -82,14 +82,14 @@ def select_global(cands: List[Candidate], cfg: dict) -> List[Candidate]:
       - ending = auto       -> finit sur le moment le plus fort (pas forcément une victoire)
                  victory    -> finit sur une victoire si elle existe
                  none       -> aucun final imposé
-      - order  = build_up   -> montée en puissance (score croissant)
-                 hook       -> gros moment en ouverture, puis montée
-                 chronological
+      - order  = chronological -> ordre chrono (par vidéo puis temps) [défaut]
+                 build_up      -> montée en puissance (score croissant)
+                 hook          -> gros moment en ouverture, puis montée
     """
     ed = cfg["editing"]
     min_total, max_total = ed["min_total_seconds"], ed["max_total_seconds"]
     ending = ed.get("ending", "auto")
-    order = ed.get("order", "build_up")
+    order = ed.get("order", "chronological")
 
     ranked = sorted(cands, key=lambda c: c.score, reverse=True)
     chosen: List[Candidate] = []

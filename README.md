@@ -2,7 +2,7 @@
 
 > Automatically builds a highlight montage from a folder of **Call of Duty: Warzone**
 > clips, combining computer vision (HUD kill detection), audio analysis and speech
-> transcription.
+> transcription. **Work in progress** — see what runs out of the box below.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-template%20matching-5C3EE8?logo=opencv&logoColor=white)
@@ -20,23 +20,30 @@ synced to the beat.
 
 Produced with no manual editing: kills detected on the HUD, selected and assembled by the program.
 
-## How it works — 3 fused signals
+## How it works — fused signals
 
-| Signal | Method | Role |
-|---|---|---|
-| HUD vision | Template matching (OpenCV) of the kill / knock / elimination icon that flashes on screen | Reliable signal: detects kills independently of sound |
-| Action density | Temporal clustering of nearby kills | Multikill / 2v1 / 3v1 / wipe → high score |
-| Voice / prox chat | Whisper transcription + audio peaks | Boosts when a voice lands right before a kill (last words) or right after (reactions); victory detected via OCR |
+Out of the box (fresh clone), the pipeline runs **two** signals: red kill-banner
+detection and Whisper voice. Two more are **opt-in** and noticeably improve the
+selection once enabled.
 
-The three signals are scored together, the best moments are kept, with an adaptive
-clip length (a short no-scope, a long clutch) and the victory as the closer.
+| Signal | Method | Role | Status |
+|---|---|---|---|
+| Kill banner | Detects the red "ENEMY DOWN / ELIMINATED" banner flashing on the HUD (`killdetect.py`, no calibration) | Backbone signal: marks each kill, sound-independent | On by default |
+| Voice / prox chat | Whisper transcription of the audio track | Boosts when a voice lands right before a kill (last words) or right after (reactions) | On by default |
+| HUD template vision | Template matching (OpenCV) of the kill / knock / elimination icon | Extra precision once you generate your own templates | Opt-in (run `calibrate.py`; templates are not shipped) |
+| Action density | Audio action-peaks (gunfire/explosions) clustered with kills | Adds multikill / 2v1 / 3v1 / wipe weight | Opt-in (set `audio.use_action_peaks: true`) |
+
+The active signals are scored together, the best moments are kept, with an adaptive
+clip length (a short no-scope, a long clutch). Victory detection can close the
+montage too — see below.
 
 ```
    clips/ (multiple VODs)
         |
         v
  [ vision.py ]   [ audio.py ]   [ killdetect.py ]
-  HUD template    peaks + voice   kill counter
+  HUD template    peaks + voice   red kill banner
+  (opt-in)        (peaks opt-in)  (default)
         \_____________|_______________/
                       v
                 [ scoring.py ]   scoring + global selection
@@ -90,8 +97,14 @@ python main.py ./clips -m music.mp3 --no-voice
 Vertical TikTok format: `width: 1080 / height: 1920` in `config.yaml`.
 Burned-in prox-chat subtitles: `output.subtitles: true` (Whisper required).
 
-The pipeline runs out of the box with audio + voice. Vision-based kill detection
-turns on once the templates are created (below) and noticeably improves the selection.
+The pipeline runs out of the box with kill-banner detection + voice. HUD template
+vision turns on once you create the templates (below) and the audio action-peak
+signal turns on via `audio.use_action_peaks: true`; both noticeably improve the
+selection.
+
+Victory detection is **optional**: set `vision.detect_victory: true` in
+`config.yaml` (needs tesseract) and `editing.ending: victory` to close the montage
+on a win.
 
 ## Calibrating the kill templates
 
@@ -127,7 +140,7 @@ Templates are setup-specific: they are not versioned (`.gitignore`); everyone ge
 | Module | Responsibility |
 |---|---|
 | `vision.py` | Template matching of the kill icon on the HUD |
-| `killdetect.py` | Automatic kill detection via the on-screen counter (no calibration) |
+| `killdetect.py` | Kill detection via the red elimination banner on the HUD (no calibration) |
 | `audio.py` | Action peaks + spoken-segment detection |
 | `scoring.py` | Moment scoring + global multi-clip selection |
 | `montage.py` | Beat-synced cuts + FFmpeg assembly |

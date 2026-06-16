@@ -1,45 +1,46 @@
-# Configuration du montage automatique Warzone (v2)
+# Warzone automatic montage configuration (v2)
 
 vision:
-  templates_dir: templates           # tes templates de kill (créés avec calibrate.py)
-  search_region: [0.30, 0.35, 0.40, 0.30]   # zone centrale où flashe l'icône (à CALIBRER)
-  threshold: 0.72                    # 0.65 = plus sensible, 0.80 = plus strict
-  sample_fps: 4.0                    # images/s analysées pour la vision
-  detect_victory: false              # détecter l'écran de victoire (#1 / VICTOIRE) par OCR (nécessite tesseract)
-  victory_region: [0.25, 0.05, 0.50, 0.25]  # zone du bandeau de victoire (à calibrer)
+  templates_dir: templates           # your kill templates (created with calibrate.py)
+  search_region: [0.30, 0.35, 0.40, 0.30]   # central area where the icon flashes (to CALIBRATE)
+  threshold: 0.72                    # 0.65 = more sensitive, 0.80 = stricter
+  sample_fps: 4.0                    # frames/s analysed for vision
+  detect_victory: false              # detect the victory screen (#1 / VICTORY) via OCR (needs tesseract)
+  victory_region: [0.25, 0.05, 0.50, 0.25]  # victory banner area (to calibrate)
 
 audio:
   sr: 16000
-  percentile: 93                     # pics d'action (tirs) ; baisser = plus sensible
+  percentile: 93                     # action peaks (gunfire); lower = more sensitive
   min_gap_s: 3.0
-  whisper_model: base                # tiny / base / small / medium (qualité vs vitesse)
-  language: null                     # null = auto ; "fr" ou "en" pour forcer
+  whisper_model: base                # tiny / base / small / medium (quality vs speed)
+  language: null                     # null = auto; "fr" or "en" to force
+  use_action_peaks: false            # opt-in: also use audio action-peak density as a signal
 
 scoring:
-  merge_gap_s: 15.0                  # 2 kills en < X s = UNE action entière (règle Alex : 15s)
+  merge_gap_s: 15.0                  # 2 kills within < X s = ONE whole action
   kill_weight: 1.0
-  multikill_multiplier: 2.0          # >= 3 kills rapprochés
+  multikill_multiplier: 2.0          # >= 3 kills close together
   wipe_multiplier: 3.0               # >= 4 kills (squad wipe)
-  voice_kill_multiplier: 1.6         # voix + kill = "derniers mots" / réaction
+  voice_kill_multiplier: 1.6         # voice + kill = "last words" / reaction
   speech_weight: 0.4
   victory_bonus: 4.0
-  audio_only_weight: 0.25            # clusters basés seulement sur l'audio (sans vision)
+  audio_only_weight: 0.25            # clusters based only on audio (no vision)
 
 editing:
-  lead_in_s: 2.0                     # marge avant l'action (réduite : moins de temps mort au début)
-  lead_out_s: 1.5                    # marge après
+  lead_in_s: 2.0                     # margin before the action (reduced: less dead time at the start)
+  lead_out_s: 1.5                    # margin after
   min_clip_s: 4.0
-  max_clip_s: 30.0                   # action complète (kill -> repositionne -> 1v2) peut durer jusqu'ici
+  max_clip_s: 30.0                   # a full action (kill -> reposition -> 1v2) can last this long
   min_total_seconds: 30
   max_total_seconds: 120             # 2 min max
-  ending: none                       # auto = finir sur le moment le plus fort (pas forcément la victoire) | victory | none
-  order: chronological               # build_up (montée) | hook (gros moment en ouverture) | chronological
-  beat_sync: true                    # caler les coupes sur le tempo de la musique
-  music_volume: 0.35                 # musique en FOND léger
-  game_audio_volume: 1.0             # on GARDE les voix / prox chat bien présentes
+  ending: none                       # auto = end on the strongest moment (not necessarily the victory) | victory | none
+  order: chronological               # chronological | build_up (ramp up) | hook (big moment up front)
+  beat_sync: true                    # align cuts to the music tempo
+  music_volume: 0.35                 # music as a light background
+  game_audio_volume: 1.0             # keep voices / prox chat well present
 
 output:
-  width: 1920                        # vertical TikTok : width 1080 / height 1920
+  width: 1920                        # vertical TikTok: width 1080 / height 1920
   height: 1080
   fps: 30
-  subtitles: false                   # true = incruste les sous-titres du prox chat (whisper requis)
+  subtitles: false                   # true = burns in prox-chat subtitles (whisper required)
