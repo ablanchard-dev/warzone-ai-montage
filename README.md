@@ -14,12 +14,6 @@ Point it at a folder of clips/VODs and it finds the real highlights (multikills,
 videos, and edits a 30 s–2 min clip: voices kept up front, music underneath, cuts
 synced to the beat.
 
-## Demo
-
-![Demo — automatically generated montage](docs/demo.gif)
-
-Produced with no manual editing: kills detected on the HUD, selected and assembled by the program.
-
 ## How it works — fused signals
 
 Out of the box (fresh clone), the pipeline runs **two** signals: red kill-banner
