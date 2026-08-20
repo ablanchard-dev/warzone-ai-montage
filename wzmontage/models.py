@@ -37,6 +37,7 @@ class Candidate:
     crop: str | None = None      # crop ffmpeg "w:h:x:y" appliqué avant le formatage (ex: intro casteurs)
     speed: float = 1.0           # 1.0 = normal ; >1 = accéléré (gameplay)
     is_intro: bool = False       # segment d'intro (casteurs) : PAS de musique dessus, audio original gardé
+    kill_times: list = field(default_factory=list)  # instants (clip time) des kills du cluster -> effets fx
 
     @property
     def duration(self) -> float:

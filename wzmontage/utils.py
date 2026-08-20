@@ -34,15 +34,18 @@ def ffprobe(path) -> dict:
         "-of", "json", str(path),
     ]
     data = json.loads(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout)
-    s = data["streams"][0]
-    num, den = s["avg_frame_rate"].split("/")
+    # Un fichier AUDIO (musique) n'a aucun flux "v:0" -> streams vide. Seule la
+    # duree a du sens pour lui, et c'est tout ce que le beat-sync demande.
+    streams = data.get("streams") or []
+    s = streams[0] if streams else {}
+    num, den = (s.get("avg_frame_rate") or "0/1").split("/")
     den = float(den)
     fps = float(num) / den if den else 30.0
     return {
         "duration": float(data["format"]["duration"]),
         "fps": fps,
-        "width": int(s["width"]),
-        "height": int(s["height"]),
+        "width": int(s.get("width") or 0),
+        "height": int(s.get("height") or 0),
     }
 
 

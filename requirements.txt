@@ -1,11 +1,25 @@
-numpy>=1.24
-opencv-python>=4.8
-librosa>=0.10
-soundfile>=0.12
-PyYAML>=6.0
+# Dependances reelles de wzmontage, relevees des imports du code le 15/08/2026.
+# Ce fichier n'existait pas : rien ne declarait ce dont l'outil a besoin, et deux
+# briques manquaient en silence sur la machine de dev.
 
-# Optionnel — voix (prox chat) + sous-titres :
-# faster-whisper>=1.0
+PyYAML          # main.py  - lecture de config.yaml
+numpy           # audio.py, montage.py
+opencv-python   # killdetect.py, vision.py, calibrate.py - lecture video + detection du bandeau
+librosa         # audio.py, montage.py - pics d'action, beat detection
+faster-whisper  # audio.py - transcription voix (contournable avec --no-voice)
 
-# Optionnel — détection de l'écran de victoire par OCR :
-# pytesseract>=0.3.10
+# --- OCR : sans lui l'outil TOURNE, mais degrade, et le resultat reste plausible ---
+
+rapidocr-onnxruntime
+# killdetect.py. SANS LUI, `_classify_banner` renvoie "kill" pour TOUT bandeau rouge :
+#   - impossible de distinguer un KNOCK d'un CONFIRM  -> la regle "couper sur le knock"
+#     ne peut pas s'appliquer et un seul ennemi peut compter double ;
+#   - "COEQUIPIER A TERRE" et "VOUS ETES A TERRE" sont AUSSI des bandeaux rouges
+#     -> le montage peut contenir tes morts et les downs de tes potes.
+# Le repli est volontaire (l'outil ne doit pas planter), mais il etait MUET jusqu'au
+# 15/08 : un avertissement s'affiche desormais au lancement.
+
+pytesseract
+# vision.py, ecran de victoire uniquement. Vraiment optionnel : `detect_victory: false`
+# dans config.yaml par defaut, donc son absence ne change rien tant qu'on ne l'active pas.
+# Necessite aussi le binaire tesseract installe sur le systeme.

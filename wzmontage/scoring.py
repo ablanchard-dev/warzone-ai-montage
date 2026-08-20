@@ -62,16 +62,35 @@ def build_candidates(events: List[Event], video_duration: float, cfg: dict) -> L
         if has_victory:
             score += sc["victory_bonus"]
 
-        # Bornes adaptatives + clamp
-        start = max(0.0, c["raw_start"] - ed["lead_in_s"])
-        end = min(video_duration, c["raw_end"] + ed["lead_out_s"])
+        # Bornes adaptatives + clamp. La fin du lead-out se base sur la dernière ACTION
+        # (kill/voix…), pas sur une éventuelle mort, sinon on rallongerait jusqu'à elle.
+        non_death = [e.t for e in c["events"] if e.type != "death"]
+        action_end = max(non_death) if non_death else c["raw_end"]
+        # Symétrique de la ligne au-dessus, qui manquait : le DÉBUT doit lui aussi
+        # ignorer les morts. Cas réel : tu te fais mettre à terre, tu te relèves et
+        # tu tues 8 s plus tard -> même cluster (fenêtre merge_gap_s = 15 s) ->
+        # `raw_start` valait ta mise à terre, et le clip S'OUVRAIT DESSUS.
+        action_start = min(non_death) if non_death else c["raw_start"]
+        start = max(0.0, action_start - ed["lead_in_s"])
+        end = min(video_duration, action_end + ed["lead_out_s"])
         if end - start < ed["min_clip_s"]:
             end = min(video_duration, start + ed["min_clip_s"])
         if end - start > ed["max_clip_s"]:
             end = start + ed["max_clip_s"]
 
+        # DEATH-TRIM (règle Alex : "tjr le clip où je meurs") — borne DURE appliquée APRÈS
+        # les clamps : le segment se termine AVANT que tu sois à terre/mort. On coupe
+        # `death_guard_s` avant l'apparition de l'état "à terre". Si ça rend le clip court,
+        # tant pis : mieux vaut court que de te montrer en train de crever.
+        death_guard = ed.get("death_guard_s", 0.4)
+        deaths_after = sorted(e.t for e in c["events"] if e.type == "death" and e.t > start)
+        if deaths_after:
+            end = min(end, deaths_after[0] - death_guard)
+
+        kill_times = [e.t for e in c["events"] if e.type in KILLY and e.t < end]
         cands.append(Candidate(c["events"][0].video, start, end, score,
-                               n_kills, has_victory, has_speech, kinds))
+                               n_kills, has_victory, has_speech, kinds,
+                               kill_times=kill_times))
     return cands
 
 

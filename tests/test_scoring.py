@@ -194,3 +194,36 @@ def test_select_ending_auto_finishes_on_highest_score():
     ]
     result = select_global(cands, cfg(ending="auto", order="build_up"))
     assert result[-1].score == 20.0
+
+
+# --- Regression : le clip pouvait S'OUVRIR SUR TA PROPRE MORT ---------------
+# La FIN excluait deja les 'death' (`action_end`), mais le DEBUT prenait
+# `raw_start` brut. Cas reel : tu es mis a terre, tu te releves, tu tues 8 s
+# plus tard -> meme cluster (merge_gap_s = 15 s) -> le clip commencait sur ta
+# mise a terre. Exactement ce que l'outil est cense eviter.
+
+def test_le_clip_ne_commence_pas_sur_une_mort_qui_precede_l_action():
+    events = [Event("v", 50.0, "death"), Event("v", 58.0, "knock")]
+    cands = build_candidates(events, 200.0, CFG)
+    assert len(cands) == 1
+    # ancre sur le knock (58) moins lead_in (2), pas sur la mort (50)
+    assert cands[0].start == pytest.approx(56.0)
+
+
+def test_la_mort_qui_precede_reste_hors_du_clip():
+    events = [Event("v", 50.0, "death"), Event("v", 58.0, "knock")]
+    c = build_candidates(events, 200.0, CFG)[0]
+    assert c.start > 50.0
+
+
+def test_un_cluster_de_morts_seules_garde_son_ancrage():
+    # Aucun evenement d'action : on ne change pas le comportement existant.
+    cands = build_candidates([Event("v", 50.0, "death")], 200.0, CFG)
+    if cands:
+        assert cands[0].start == pytest.approx(48.0)
+
+
+def test_le_debut_suit_le_premier_kill_pas_le_premier_evenement():
+    events = [Event("v", 10.0, "death"), Event("v", 12.0, "knock"), Event("v", 20.0, "elim")]
+    c = build_candidates(events, 200.0, CFG)[0]
+    assert c.start == pytest.approx(10.0)   # 12 - lead_in 2

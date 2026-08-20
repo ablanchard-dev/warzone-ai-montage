@@ -96,6 +96,51 @@ def parse_manual_segment(spec: str, videos) -> Candidate:
     return Candidate(video, start, end, score=999.0, n_kills=0, kinds={"manual"})
 
 
+def resolve_audio(music_path, audio_mode, mute_gameplay):
+    """Décide (musique, coupe-son) à partir des drapeaux CLI. Pur -> testable.
+
+    Le sens « --audio mix sans -m » levait déjà une erreur explicite. Le sens
+    INVERSE ne disait rien : passer `-m musique.mp3` sans `--audio mix` faisait
+    JETER le fichier en silence — le montage sortait sans musique, sans un mot.
+    Piège vécu, noté en mémoire comme « -m seul ne fait rien ». Un drapeau qu'il
+    faut se souvenir de compléter est un défaut, pas une astuce.
+
+    Renvoie (music, mute, avertissements).
+    """
+    if audio_mode in ("mix", "music") and not music_path:
+        raise SystemExit(f"--audio {audio_mode} nécessite -m <fichier musique>")
+    if music_path and audio_mode not in ("mix", "music"):
+        raise SystemExit(
+            f"-m/--music est IGNORÉ avec --audio {audio_mode}. "
+            "Ajoute --audio mix (musique + son du jeu) ou --audio music (musique seule)."
+        )
+    music = music_path if audio_mode in ("mix", "music") else None
+    mute = (audio_mode == "clean") or (mute_gameplay and audio_mode == "game")
+    avertissements = []
+    if mute_gameplay and audio_mode != "game":
+        avertissements.append(
+            f"  ⚠ --mute-gameplay ignoré avec --audio {audio_mode} "
+            "(il ne s'applique qu'au mode 'game' ; pour la musique seule, --audio music)."
+        )
+    return music, mute, avertissements
+
+
+def final_report(degraded) -> str:
+    """Mot de la fin du run, portant les dégradations constatées pendant l'analyse.
+
+    Séparé de la boucle de rendu pour être testable. Avant, le run se terminait
+    toujours par « ✓ Terminé. » : l'avertissement OCR existait mais était imprimé
+    à l'analyse du premier clip, donc des centaines de lignes plus haut. Le détail
+    était honnête et la conclusion mentait par omission.
+    """
+    if not degraded:
+        return "✓ Terminé."
+    lignes = ["", "⚠ MONTAGE PRODUIT EN MODE DÉGRADÉ :"]
+    lignes += [f"   - {raison}" for raison in degraded]
+    lignes.append("✓ Terminé — mais relis l'avertissement ci-dessus avant de publier.")
+    return "\n".join(lignes)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Montage automatique des moments forts de Warzone (multi-clips).")
@@ -127,9 +172,32 @@ def main() -> None:
     ap.add_argument("--intro-crop", metavar="W:H:X:Y",
                     help="Crop appliqué à l'intro (ex: 310:1080:0:0 pour la colonne facecams gauche).")
     ap.add_argument("--speed", type=float, default=1.0,
-                    help="Accélère les segments gameplay (ex: 1.15). L'intro reste à 1x.")
+                    help="Accélère les segments gameplay (ex: 1.15). L'intro reste à 1x. "
+                         "NE RACCOURCIT PAS le montage : chaque extrait garde sa durée et "
+                         "couvre d'autant plus d'action (--speed 2 = 2x plus de jeu dans le "
+                         "même temps). Pour un montage plus court, utilise --max-seconds.")
     ap.add_argument("--mute-gameplay", action="store_true",
                     help="Coupe l'audio du gameplay (garde l'intro casteurs) → clip muet prêt pour un son TikTok.")
+    ap.add_argument("--fx", action="store_true",
+                    help="Raccourci = --zoom + --sfx (tous les effets auto sur les kills). OPTIONNEL.")
+    ap.add_argument("--zoom", action="store_true",
+                    help="Zoom-punch auto sur les kills détectés. OPTION indépendante, off par défaut.")
+    ap.add_argument("--sfx", action="store_true",
+                    help="SFX punch auto sur les kills. OPTION indépendante, off par défaut.")
+    ap.add_argument("--beat-fx", action="store_true",
+                    help="Punchs de zoom DOUX calés sur le beat de la musique (pulse au tempo, feel monté). "
+                         "Nécessite -m <musique> + --zoom (ou --fx). OPTION indépendante, off par défaut.")
+    ap.add_argument("--beat-peak", type=float, default=None,
+                    help="Intensité du pulse beat-fx (défaut 1.08 ; <1.06 = très doux, >1.10 = marqué).")
+    ap.add_argument("--beat-stride", type=int, default=None,
+                    help="1 pulse beat-fx tous les N beats (défaut 2 ; 3 = plus espacé, 1 = chaque beat).")
+    ap.add_argument("--layout", choices=["blurfill", "facecam-top"], default="blurfill",
+                    help="Disposition verticale (avec --fx) : blurfill (défaut) ou facecam-top (stream en haut, gameplay en bas).")
+    ap.add_argument("--transitions", default=None, metavar="KIND",
+                    help="Transition entre segments : fade, fadewhite (flash), wipeleft, slideup… Off par défaut (cut franc).")
+    ap.add_argument("--audio", choices=["game", "mix", "music", "clean"], default="game",
+                    help="Son : game = jeu + prox-chat (défaut, rien coupé) | mix = jeu + musique | "
+                         "music = musique seule | clean = muet (pour coller le son TikTok au post).")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -137,6 +205,20 @@ def main() -> None:
         cfg["editing"]["max_total_seconds"] = args.max_seconds
     if args.ending:
         cfg["editing"]["ending"] = args.ending
+    # --audio : mode son, rien d'imposé. Défaut = garder le son du jeu (balles + prox-chat = le moat).
+    music, mute, avertissements = resolve_audio(args.music, args.audio, args.mute_gameplay)
+    for a in avertissements:
+        print(a)
+    if args.audio == "music":
+        cfg["editing"]["game_audio_volume"] = 0.0   # musique seule : jeu coupé sous la musique
+    do_zoom = args.zoom or args.fx   # effets indépendants ; --fx = raccourci pour les deux
+    do_sfx = args.sfx or args.fx
+    if args.beat_fx and (not music or not do_zoom):
+        print("  ⚠ --beat-fx ignoré : nécessite une musique (-m … --audio mix/music) ET --zoom/--fx.")
+    if args.beat_peak is not None:
+        cfg["editing"]["beat_fx_peak"] = args.beat_peak
+    if args.beat_stride is not None:
+        cfg["editing"]["beat_fx_stride"] = args.beat_stride
     use_victory = cfg["vision"].get("detect_victory", True) and not args.no_vision
     ensure_tools(need_tesseract=use_victory)
 
@@ -160,7 +242,16 @@ def main() -> None:
 
         if not args.no_vision:
             print("  vision : kills (bandeau ENNEMI ABATTU, sans calibrage)...")
-            events += detect_kill_banners(v, fps=info["fps"])
+            kd = cfg.get("killdetect", {})
+            events += detect_kill_banners(
+                v, fps=info["fps"],
+                sample_fps=kd.get("sample_fps", 5.0),
+                min_gap=kd.get("min_gap_s", 1.5),
+                on_frac=kd.get("on_frac", 0.33),
+                ocr_offset=kd.get("ocr_offset_s", 0.5),
+                merge_confirm_s=kd.get("merge_confirm_s", 10.0),
+                death_scan_s=kd.get("death_scan_s", 5.0),
+                death_scan_fps=kd.get("death_scan_fps", 4.0))
 
         if templates:
             print("  vision : kills / mises à terre (templates)...")
@@ -195,8 +286,13 @@ def main() -> None:
         print(f"  → {len(cands)} moments candidats")
         all_cands += cands
 
-    if not all_cands:
-        raise SystemExit("Aucun moment détecté. Baisse audio.percentile ou ajoute des templates.")
+    # On n'abandonne QUE s'il n'y a vraiment rien à monter. `--add` et `--first` sont
+    # l'échappatoire quand la détection rate un moment : les ignorer ici les rendait
+    # inutilisables dans le seul cas où on les sort — et le message conseillait de
+    # baisser un seuil alors que l'utilisateur a déjà dit quoi garder.
+    if not all_cands and not args.add and not args.first:
+        raise SystemExit("Aucun moment détecté. Baisse audio.percentile, ajoute des "
+                         "templates, ou force un segment avec --add / --first.")
 
     # --drop : retirer les candidats AVANT la sélection → libère le budget. Un clip qu'on
     # remplace via --add (ex: le montage ranked) ne doit pas bouffer le quota puis être jeté.
@@ -239,6 +335,21 @@ def main() -> None:
         print(f"   ▶ intro : {Path(args.intro).name} ({intro_dur:.0f}s, x1"
               + (f", crop {args.intro_crop}" if args.intro_crop else "") + ")")
 
+    # `--zoom` et `--sfx` se calent sur les KILLS (`c.kill_times`). Sans kill détecté,
+    # ils ne font rien — et ne le disaient pas : on passait l'option, le rendu sortait
+    # inchangé, sans un mot. Vérifié le 15/08 : sortie au hash IDENTIQUE avec et sans
+    # `--zoom`. `--beat-fx`, lui, se cale sur la musique et marche sans aucun kill.
+    beat_fx_actif = bool(args.beat_fx and music and do_zoom)
+    sans_kill = not any(getattr(c, "kill_times", None) for c in selected)
+    # `--beat-fx` fournit ses propres centres depuis la musique : dans ce cas le zoom
+    # agit malgré l'absence de kills, et avertir serait faux.
+    inertes = [n for n, on in (("--zoom", do_zoom and not beat_fx_actif),
+                               ("--sfx", do_sfx)) if on]
+    if sans_kill and inertes:
+        print(f"  ⚠ {' et '.join(inertes)} sans effet : aucun kill détecté dans les "
+              f"extraits retenus (ces effets se calent sur les kills). "
+              f"--beat-fx, lui, suit la musique.")
+
     total = sum(c.duration for c in selected)
     print(f"\n→ {len(selected)} extraits retenus (~{total:.0f}s)")
     for c in selected:
@@ -262,10 +373,13 @@ def main() -> None:
         out_path = output_name(args.output, fmt_name, len(formats))
         label = f" [{fmt_name}]" if fmt_name else ""
         print(f"   montage{label} {w}x{h}...")
-        build_montage(selected, args.music, out_path, cfg_fmt, speech_by_video=speech,
-                      mute_gameplay=args.mute_gameplay)
+        build_montage(selected, music, out_path, cfg_fmt, speech_by_video=speech,
+                      mute_gameplay=mute, zoom=do_zoom, sfx=do_sfx, layout=args.layout,
+                      transitions=args.transitions, beat_fx=args.beat_fx)
         print(f"   ✓ {out_path}")
-    print("✓ Terminé.")
+
+    from wzmontage.killdetect import degradations
+    print(final_report(degradations()))
 
 
 if __name__ == "__main__":

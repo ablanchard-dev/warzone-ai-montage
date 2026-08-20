@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from .models import Candidate, SpeechSegment
+from .overlays import _escape_path
 from .utils import ffprobe, run
 
 
@@ -43,20 +44,80 @@ def _vfilter(w: int, h: int, fps: int, vertical: bool,
 
 
 def _extract(video, start: float, dur: float, out, w, h, fps, vertical,
-             speed: float = 1.0, crop: str | None = None) -> None:
-    fc = _vfilter(w, h, fps, vertical, crop=crop, speed=speed)
+             speed: float = 1.0, crop: str | None = None, spec: dict | None = None) -> None:
+    if spec:
+        from . import compositor
+        src_w, src_h, src_fps = compositor._probe_dims(str(video))
+        fc, _ = compositor.build_segment_filtergraph(spec, src_w, src_h, fps, src_fps=src_fps)
+    else:
+        fc = _vfilter(w, h, fps, vertical, crop=crop, speed=speed)
     cmd = [
         "ffmpeg", "-y",
         "-ss", f"{start:.3f}", "-i", str(video), "-t", f"{dur:.3f}",
         "-filter_complex", fc,
         "-map", "[v]", "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ar", "48000", "-ac", "2", "-r", str(fps),
     ]
     if speed and speed != 1.0:
         cmd += ["-filter:a", f"atempo={speed}"]      # garde l'audio synchro avec la vidéo accélérée
     cmd += [str(out)]
     run(cmd)
+
+
+_PUNCH = Path(__file__).resolve().parent.parent / "assets" / "sfx" / "punch.wav"
+
+
+def _add_sfx(part, rel_times, tmp, i, gain: float = 3.5):
+    """Mixe le SFX punch sur l'audio du segment à chaque kill (rel_times en s).
+    Post-étape isolée : vidéo COPIÉE (rapide), n'altère pas le rendu vidéo. OPTIONNEL.
+    Renvoie le nouveau chemin (ou `part` inchangé si pas de SFX dispo)."""
+    if not rel_times or not _PUNCH.exists():
+        return part
+    n = len(rel_times)
+    split = f"[1:a]asplit={n}" + "".join(f"[s{k}]" for k in range(n)) + ";"
+    delays = "".join(
+        f"[s{k}]adelay={int(t * 1000)}|{int(t * 1000)},volume={gain}[p{k}];"
+        for k, t in enumerate(rel_times))
+    mix_in = "[0:a]" + "".join(f"[p{k}]" for k in range(n))
+    fc = split + delays + f"{mix_in}amix=inputs={n + 1}:duration=first:normalize=0[a]"
+    out = tmp / f"clip_{i:03d}_sfx.mp4"
+    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+         "-i", str(part), "-i", str(_PUNCH), "-filter_complex", fc,
+         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", str(out)])
+    return out
+
+
+def _concat_xfade(parts, out, tdur: float = 0.3, kind: str = "fade"):
+    """Concatène les segments avec transition xfade (vidéo) + acrossfade (audio) entre
+    chaque. OPTIONNEL (sinon concat franc, chemin par défaut). Tous les parts ont mêmes
+    dims/fps (garanti par le rendu). Renvoie le chemin de sortie."""
+    parts = [str(p) for p in parts]
+    if len(parts) == 1:
+        run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+             "-i", parts[0], "-c", "copy", str(out)])
+        return out
+    durs = [ffprobe(p)["duration"] for p in parts]
+    inputs = []
+    for p in parts:
+        inputs += ["-i", p]
+    vchain, achain = [], []
+    prev_v, prev_a = "[0:v]", "[0:a]"
+    cum = durs[0]
+    for k in range(1, len(parts)):
+        offset = max(0.0, cum - tdur)
+        vlab, alab = f"[vx{k}]", f"[ax{k}]"
+        vchain.append(f"{prev_v}[{k}:v]xfade=transition={kind}:duration={tdur}:"
+                      f"offset={offset:.3f}{vlab}")
+        achain.append(f"{prev_a}[{k}:a]acrossfade=d={tdur}{alab}")
+        prev_v, prev_a = vlab, alab
+        cum += durs[k] - tdur
+    fc = ";".join(vchain + achain)
+    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
+         "-filter_complex", fc, "-map", prev_v, "-map", prev_a,
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-movflags", "+faststart", str(out)])
+    return out
 
 
 def _ts(x: float) -> str:
@@ -74,22 +135,47 @@ def _to_srt(lines) -> str:
 
 def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
                   speech_by_video: Dict[str, List[SpeechSegment]] | None = None,
-                  mute_gameplay: bool = False):
+                  mute_gameplay: bool = False, zoom: bool = False, sfx: bool = False,
+                  layout: str = "blurfill", transitions: str | None = None,
+                  beat_fx: bool = False):
     out = cfg["output"]
     w, h, fps = out["width"], out["height"], out["fps"]
     vertical = h > w
     want_subs = bool(out.get("subtitles")) and speech_by_video
 
-    # Beat-sync : on quantifie la durée de chaque extrait sur la grille des temps
-    # de la musique → les coupes tombent sur le beat (feel "monté", pas "collé").
+    # Beat-sync : on CALE les coupes sur les beats de la musique (feel "monté", pas "collé").
+    # beat_fx (option) = en plus, des punchs de zoom DOUX sur le beat (pulse au tempo).
     beat = None
-    if music_path and cfg["editing"].get("beat_sync", True):
+    beats: List[float] = []
+    music_total = None
+    if music_path and (cfg["editing"].get("beat_sync", True) or beat_fx):
         try:
-            bpm = analyze_music(music_path)["bpm"]
+            info = analyze_music(music_path)
+            bpm = info["bpm"]
+            beats = info.get("beats", [])
             if 40.0 <= bpm <= 220.0:
                 beat = 60.0 / bpm
         except Exception:
-            beat = None
+            beat, beats = None, []
+        try:
+            music_total = ffprobe(str(music_path))["duration"]
+        except Exception:
+            music_total = None
+    beat_peak = cfg["editing"].get("beat_fx_peak", 1.08)     # pic beat (doux) vs 1.18 kills
+    beat_stride = int(cfg["editing"].get("beat_fx_stride", 2))  # 1 beat sur N (anti sur-zoom)
+    min_clip = cfg["editing"].get("min_clip_s", 4.0)
+    # Grille des beats en temps musique-local (avec boucles si le montage dépasse la musique).
+    beats_timeline: List[float] = []
+    if beats:
+        total_est = sum(c.duration for c in selected) + 2.0
+        if music_total and music_total > 0:
+            k = 0
+            while k * music_total <= total_est and k <= 200:
+                beats_timeline.extend(k * music_total + b for b in beats)
+                k += 1
+        else:
+            beats_timeline = list(beats)
+        beats_timeline.sort()
 
     tmp = Path(tempfile.mkdtemp(prefix="wz_montage_"))
     parts: List[Path] = []
@@ -100,10 +186,51 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
     for i, c in enumerate(selected):
         part = tmp / f"clip_{i:03d}.mp4"
         dur = c.duration
-        if beat:
-            dur = max(beat, round(c.duration / beat) * beat)
+        if beats_timeline and not c.is_intro:
+            # CALER LA COUPE SUR LE BEAT (phase-aware) : la FIN du segment tombe sur le plus
+            # grand beat <= fin naturelle (jamais au-delà → respecte death-trim/max_clip), et
+            # >= min_clip. Comme les segments sont contigus, chaque coupe tombe sur un beat.
+            mlt_target = (offset + c.duration) - intro_offset
+            mlt_lo = (offset + min_clip) - intro_offset
+            snapped = [tb for tb in beats_timeline if mlt_lo <= tb <= mlt_target]
+            if snapped:
+                dur = (max(snapped) + intro_offset) - offset
+        # Effets OPTIONNELS et INDÉPENDANTS (zoom / sfx / layout) — rien d'imposé.
+        rel = []
+        if not c.is_intro and c.kill_times:
+            # Le bandeau "ENNEMI ABATTU" s'affiche ~0.4s APRÈS le kill (gars déjà couché,
+            # vue déjà bougée) -> on tire les effets plus tôt pour tomber sur le TIR.
+            kill_lead = 0.4
+            rel = [round(max(0.0, (kt - c.start) / max(c.speed, 1e-6) - kill_lead), 3)
+                   for kt in c.kill_times if c.start <= kt <= c.end]
+
+        # Beat-FX (option) : punchs de zoom DOUX calés sur le beat de la musique tombant
+        # DANS ce segment (le clip "pulse" au tempo). Temps de beat (timeline) = début de
+        # la musique (intro_offset) + temps-beat + boucles ; ramené en temps-local segment.
+        # On en garde 1 sur `beat_stride` et on évite les doublons avec les punchs de kill.
+        beat_pts = []
+        if beat_fx and zoom and beats and music_total and not c.is_intro:
+            kmax = int((offset + dur) / music_total) + 2
+            for k in range(kmax):
+                for j in range(0, len(beats), max(1, beat_stride)):
+                    tau = (intro_offset + beats[j] + k * music_total) - offset
+                    if 0.12 <= tau <= dur - 0.12 and all(abs(tau - r) > 0.20 for r in rel):
+                        beat_pts.append(round(tau, 3))
+
+        centers = rel + beat_pts
+        peaks = [1.18] * len(rel) + [beat_peak] * len(beat_pts)
+        spec = None
+        if (zoom and centers) or layout == "facecam-top":   # compositeur si zoom OU layout spécial
+            fmt = ("facecam_top" if layout == "facecam-top"
+                   else "vertical" if vertical else "fullscreen")
+            spec = {"format": fmt, "speed": c.speed}
+            if zoom and centers:
+                spec["zoom_punch"] = centers
+                spec["zoom_peaks"] = peaks
         _extract(c.video, c.start, dur, part, w, h, fps, vertical,
-                 speed=c.speed, crop=c.crop)
+                 speed=c.speed, crop=c.crop, spec=spec)
+        if sfx and rel:                      # SFX punch (option indépendante)
+            part = _add_sfx(part, rel, tmp, i)
         real = ffprobe(part)["duration"]
         if c.is_intro:
             intro_offset += real
@@ -117,12 +244,15 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
         parts.append(part)
         offset += real
 
-    # Concaténation (même codec partout -> copie)
-    listfile = tmp / "list.txt"
-    listfile.write_text("".join(f"file '{p}'\n" for p in parts), encoding="utf-8")
+    # Concaténation : transitions xfade (optionnel) OU concat franc (défaut, copie).
     concat = tmp / "concat.mp4"
-    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-         "-i", str(listfile), "-c", "copy", str(concat)])
+    if transitions and len(parts) > 1:
+        _concat_xfade(parts, concat, tdur=0.3, kind=transitions)
+    else:
+        listfile = tmp / "list.txt"
+        listfile.write_text("".join(f"file '{p}'\n" for p in parts), encoding="utf-8")
+        run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", str(listfile), "-c", "copy", str(concat)])
     total = ffprobe(concat)["duration"]
 
     cur = concat
@@ -173,9 +303,14 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
         srt.write_text(_to_srt(srt_lines), encoding="utf-8")
         run([
             "ffmpeg", "-y", "-i", str(cur),
-            "-vf", f"subtitles={srt}:force_style='Fontsize=18,Outline=2,Alignment=2'",
-            "-c:a", "copy", str(output_path),
+            # Le chemin entre DANS le filtre, pas en argument : sur Windows le `C:` et
+            # les antislashs étaient avalés par ffmpeg (« Unable to parse option value
+            # "UsersblancAppData…" as image size » — mesuré le 15/08). Les sous-titres
+            # ne fonctionnaient donc jamais ici. Même échappement que les overlays.
+            "-vf", f"subtitles={_escape_path(str(srt))}:"
+                   f"force_style='Fontsize=18,Outline=2,Alignment=2'",
+            "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", str(output_path),
         ])
     else:
-        run(["ffmpeg", "-y", "-i", str(cur), "-c", "copy", str(output_path)])
+        run(["ffmpeg", "-y", "-i", str(cur), "-c", "copy", "-movflags", "+faststart", str(output_path)])
     return output_path

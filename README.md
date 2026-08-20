@@ -51,10 +51,19 @@ montage too — see below.
 
 - Python — modular pipeline (`wzmontage/`)
 - OpenCV — kill detection via HUD template matching
+- **RapidOCR — reads the HUD banner text. Strongly recommended, see below.**
 - librosa / soundfile — audio action-peak analysis
 - faster-whisper (optional) — prox-chat transcription
 - pytesseract (optional) — victory-screen OCR
 - FFmpeg — cutting, beat-sync and final render
+
+> **Without `rapidocr-onnxruntime` the tool still runs, but blind.** The red HUD banner
+> alone cannot tell a kill from a death: `ENNEMI ABATTU` (you downed someone),
+> `COÉQUIPIER À TERRE` (a teammate went down) and `VOUS ÊTES À TERRE` (you died) are
+> all red. Without OCR every banner counts as a kill, so **the montage can include your
+> own deaths**, and knock/confirm cannot be told apart — which is what the "cut on the
+> knock" rule needs. The fallback is deliberate (the tool must not crash) and now prints
+> a warning at startup. Full dependency list with consequences: `requirements.txt`.
 
 ## System requirements
 

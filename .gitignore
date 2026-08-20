@@ -40,3 +40,14 @@ montage_*.txt
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Cache de detection des kills (re-genere depuis les rushes) ---
+.wz_detcache/
+
+# --- Polices systeme : NE PAS redistribuer ---
+# assets/manifest.json le dit lui-meme pour impact.ttf : "systeme Windows -- a
+# remplacer par une police libre avant distribution". Ce depot est PUBLIC, donc
+# la police reste locale. assets/manifest.json et assets/README.md, eux, sont
+# suivis : ils decrivent ce qu'il faut, sans le livrer.
+assets/fonts/*.ttf
+assets/fonts/*.otf

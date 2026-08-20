@@ -1,0 +1,11 @@
+{
+  "_doc": "Bibliothèque d'assets bundlés. Réfs résolues uniquement ici ou vers les uploads user (cf. sécurité §12).",
+  "fonts": [
+    { "id": "impact", "file": "fonts/impact.ttf", "use": "texte hype (BOOM, call-outs)", "license": "système Windows — à remplacer par une police libre avant distribution" }
+  ],
+  "anime": [],
+  "memes": [],
+  "sfx": [
+    { "id": "punch", "file": "sfx/punch.wav", "use": "impact sur kill", "license": "généré (sine), libre" }
+  ]
+}

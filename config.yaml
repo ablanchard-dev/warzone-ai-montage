@@ -8,6 +8,17 @@ vision:
   detect_victory: false              # detect the victory screen (#1 / VICTORY) via OCR (needs tesseract)
   victory_region: [0.25, 0.05, 0.50, 0.25]  # victory banner area (to calibrate)
 
+killdetect:                          # HUD banner detector (no calibration needed)
+  sample_fps: 5.0                    # frames/s scanned for the red banner
+  min_gap_s: 1.5                     # two red flashes closer than this = one banner
+  on_frac: 0.33                      # share of vivid red pixels that triggers a banner
+  ocr_offset_s: 0.5                  # OCR a frame this long AFTER the flash (text settles)
+  merge_confirm_s: 10.0              # an ELIMINATION within this delay after a KNOCK = same
+                                     # enemy -> one kill, cut kept on the knock. TUNE THIS:
+                                     # it depends on how fast you finish a downed player.
+  death_scan_s: 5.0                  # seconds scanned after a kill to catch your own down
+  death_scan_fps: 4.0
+
 audio:
   sr: 16000
   percentile: 93                     # action peaks (gunfire); lower = more sensitive
@@ -27,14 +38,15 @@ scoring:
   audio_only_weight: 0.25            # clusters based only on audio (no vision)
 
 editing:
-  lead_in_s: 2.0                     # margin before the action (reduced: less dead time at the start)
+  lead_in_s: 3.0                     # margin before the action (capture the START of the engagement, not just the kill)
   lead_out_s: 1.5                    # margin after
+  death_guard_s: 0.4                 # death-trim: cut the segment X s BEFORE you go down/die
   min_clip_s: 4.0
   max_clip_s: 30.0                   # a full action (kill -> reposition -> 1v2) can last this long
   min_total_seconds: 30
   max_total_seconds: 120             # 2 min max
   ending: none                       # auto = end on the strongest moment (not necessarily the victory) | victory | none
-  order: chronological               # chronological | build_up (ramp up) | hook (big moment up front)
+  order: hook                        # hook (big moment up front) | build_up | chronological
   beat_sync: true                    # align cuts to the music tempo
   music_volume: 0.35                 # music as a light background
   game_audio_volume: 1.0             # keep voices / prox chat well present
