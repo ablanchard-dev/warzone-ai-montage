@@ -21,25 +21,51 @@ def extract_audio(video_path, wav_path, sr: int = 16000) -> None:
          "-vn", "-ac", "1", "-ar", str(sr), str(wav_path)])
 
 
-def detect_action_peaks(wav_path, video_path, sr: int = 16000, hop: int = 512,
-                        percentile: float = 93, min_gap: float = 3.0) -> List[Event]:
-    import librosa
+def energy_envelope(wav_path, sr: int = 16000, hop: int = 512):
+    """Enveloppe RMS normalisée 0..1 : `(times, vals)`.
+
+    Elle était déjà calculée ici, et jetée aussitôt les pics extraits. Or c'est elle
+    qui dit QUAND les tirs s'arrêtent — la seule information capable d'ancrer la fin
+    d'un clip sur la fin réelle de l'action (C4/C5). L'exposer coûte une ligne ;
+    la recalculer ailleurs aurait coûté un second chargement du fichier.
+
+    Renvoie `([], [])` si l'audio est vide ou si librosa est absent : l'appelant
+    retombe alors sur ses bornes dures, il ne devine pas.
+    """
+    try:
+        import librosa
+    except ImportError:
+        print("  [audio] librosa absent : pas d'enveloppe d'énergie, "
+              "les fins de clip retombent sur le lead-out fixe.")
+        return ([], [])
 
     y, _sr = librosa.load(str(wav_path), sr=sr, mono=True)
     if y.size == 0:
-        return []
+        return ([], [])
     rms = librosa.feature.rms(y=y, hop_length=hop)[0]
     times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
-    thr = float(np.percentile(rms, percentile))
     peak = float(rms.max()) + 1e-9
+    return ([float(t) for t in times], [float(v / peak) for v in rms])
+
+
+def detect_action_peaks(wav_path, video_path, sr: int = 16000, hop: int = 512,
+                        percentile: float = 93, min_gap: float = 3.0,
+                        env=None) -> List[Event]:
+    """`env` évite de relire le wav quand l'enveloppe a déjà été calculée."""
+    times, vals = env if env is not None else energy_envelope(wav_path, sr=sr, hop=hop)
+    if not times:
+        return []
+    # Le percentile sur les valeurs normalisées donne le MÊME seuil relatif que sur
+    # les valeurs brutes : diviser par le max est monotone, donc l'ordre est intact.
+    thr = float(np.percentile(vals, percentile))
 
     events: List[Event] = []
     last = -1e9
-    for i in range(1, len(rms) - 1):
-        if rms[i] >= thr and rms[i] >= rms[i - 1] and rms[i] >= rms[i + 1]:
-            t = float(times[i])
+    for i in range(1, len(vals) - 1):
+        if vals[i] >= thr and vals[i] >= vals[i - 1] and vals[i] >= vals[i + 1]:
+            t = times[i]
             if t - last >= min_gap:
-                events.append(Event(str(video_path), t, "action", float(rms[i] / peak)))
+                events.append(Event(str(video_path), t, "action", vals[i]))
                 last = t
     return events
 

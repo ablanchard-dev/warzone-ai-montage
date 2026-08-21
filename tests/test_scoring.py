@@ -206,8 +206,14 @@ def test_le_clip_ne_commence_pas_sur_une_mort_qui_precede_l_action():
     events = [Event("v", 50.0, "death"), Event("v", 58.0, "knock")]
     cands = build_candidates(events, 200.0, CFG)
     assert len(cands) == 1
-    # ancre sur le knock (58) moins lead_in (2), pas sur la mort (50)
-    assert cands[0].start == pytest.approx(56.0)
+    c = cands[0]
+    # Ce test epinglait `start == 56.0` (= knock 58 - lead_in 2). Le chiffre a bouge
+    # quand A1 est arrive : le clip fait moins que min_clip_s, et on le rallonge
+    # desormais par le DEBUT (rallonger la fin remettrait le temps mort que C4
+    # supprime). Ce qui doit tenir n'est pas l'arithmetique, c'est la regle :
+    assert c.start > 50.0, "le clip ne doit jamais s'ouvrir sur la mise a terre"
+    assert c.start <= 56.0, "le debut ne depasse jamais l'ancre de l'action"
+    assert c.duration >= CFG["editing"]["min_clip_s"] - 1e-6
 
 
 def test_la_mort_qui_precede_reste_hors_du_clip():
@@ -217,10 +223,16 @@ def test_la_mort_qui_precede_reste_hors_du_clip():
 
 
 def test_un_cluster_de_morts_seules_garde_son_ancrage():
-    # Aucun evenement d'action : on ne change pas le comportement existant.
+    # Aucun evenement d'action : l'ancre reste la mort elle-meme. Le `start` exact a
+    # bouge avec A1 (rallongement par le debut), l'ancrage lui n'a pas bouge.
     cands = build_candidates([Event("v", 50.0, "death")], 200.0, CFG)
     if cands:
-        assert cands[0].start == pytest.approx(48.0)
+        c = cands[0]
+        assert c.start <= 48.0, "l'ancre reste la mort moins le lead_in, jamais apres"
+        # Pas d'assertion sur min_clip_s ici : le death-trim coupe APRES le clamp et
+        # peut donc rendre le clip plus court que le minimum. C'est voulu -- « mieux
+        # vaut court que de te montrer en train de crever ». La regle qui prime :
+        assert c.end <= 50.0 - CFG["editing"].get("death_guard_s", 0.4) + 1e-6
 
 
 def test_le_debut_suit_le_premier_kill_pas_le_premier_evenement():

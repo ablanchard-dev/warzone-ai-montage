@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List
 
+from .cutting import snap_to_beat
 from .models import Candidate, SpeechSegment
 from .overlays import _escape_path
 from .utils import ffprobe, run
@@ -120,6 +121,24 @@ def _concat_xfade(parts, out, tdur: float = 0.3, kind: str = "fade"):
     return out
 
 
+def _concat_hard(parts, out):
+    """Recolle des parts SANS transition (concat demuxer, copie de flux).
+
+    Utilisé pour les sous-segments d'UN MÊME clip dont on a excisé le trou mort (C5).
+    Volontairement pas de xfade ici : un fondu entre deux moitiés de la même action
+    s'entend comme un changement de plan, alors que le montage prétend justement
+    qu'il ne s'est rien passé entre les deux.
+    """
+    parts = [str(p) for p in parts]
+    if len(parts) == 1:
+        return parts[0]
+    listfile = Path(out).with_suffix(".txt")
+    listfile.write_text("".join("file '%s'\n" % p for p in parts), encoding="utf-8")
+    run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat",
+         "-safe", "0", "-i", str(listfile), "-c", "copy", str(out)])
+    return str(out)
+
+
 def _ts(x: float) -> str:
     h = int(x // 3600); m = int((x % 3600) // 60); s = int(x % 60)
     ms = int(round((x - int(x)) * 1000))
@@ -148,7 +167,9 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
     beat = None
     beats: List[float] = []
     music_total = None
-    if music_path and (cfg["editing"].get("beat_sync", True) or beat_fx):
+    # Repli sur False, comme le config livré (A5) : un défaut de code plus permissif
+    # que le défaut documenté est un mensonge qui ne se voit qu'à l'exécution.
+    if music_path and (cfg["editing"].get("beat_sync", False) or beat_fx):
         try:
             info = analyze_music(music_path)
             bpm = info["bpm"]
@@ -190,11 +211,17 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
             # CALER LA COUPE SUR LE BEAT (phase-aware) : la FIN du segment tombe sur le plus
             # grand beat <= fin naturelle (jamais au-delà → respecte death-trim/max_clip), et
             # >= min_clip. Comme les segments sont contigus, chaque coupe tombe sur un beat.
+            # A4 : <= beat_snap_max_s, et jamais vers le tard. L'ancienne version
+            # cherchait le plus grand beat entre `min_clip` et la fin naturelle : elle
+            # ne repoussait jamais la fin (bon) mais pouvait l'AVANCER de plusieurs
+            # secondes, donc amputer l'action pour tomber sur un temps. La borne vient
+            # maintenant de `cutting.snap_to_beat`, la même que celle que les tests
+            # d'acceptation vérifient -- une seule règle, un seul endroit.
             mlt_target = (offset + c.duration) - intro_offset
-            mlt_lo = (offset + min_clip) - intro_offset
-            snapped = [tb for tb in beats_timeline if mlt_lo <= tb <= mlt_target]
-            if snapped:
-                dur = (max(snapped) + intro_offset) - offset
+            snapped_t = snap_to_beat(mlt_target, beats_timeline, cfg)
+            cand_dur = (snapped_t + intro_offset) - offset
+            if cand_dur >= min_clip:
+                dur = cand_dur
         # Effets OPTIONNELS et INDÉPENDANTS (zoom / sfx / layout) — rien d'imposé.
         rel = []
         if not c.is_intro and c.kill_times:
@@ -227,8 +254,35 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
             if zoom and centers:
                 spec["zoom_punch"] = centers
                 spec["zoom_peaks"] = peaks
-        _extract(c.video, c.start, dur, part, w, h, fps, vertical,
-                 speed=c.speed, crop=c.crop, spec=spec)
+        if c.segments:
+            # C5 : chaque sous-segment est rendu puis recollé franc -> UN seul part,
+            # qui traverse ensuite la suite du pipeline exactement comme un clip normal.
+            subs = []
+            for j, (ss, se) in enumerate(c.segments):
+                sp = tmp / f"part{i:03d}_{j:02d}.mp4"
+                sub_spec = spec
+                if spec and "zoom_punch" in spec:
+                    # Les centres de zoom sont en temps-local DU CLIP ENTIER. Réutilisés
+                    # tels quels dans un sous-segment, ils tomberaient n'importe où : le
+                    # zoom se déclencherait à côté du tir, sans qu'aucune erreur ne le
+                    # signale. On les re-base sur le sous-segment et on ne garde que ceux
+                    # qui y tombent vraiment.
+                    lo = (ss - c.start) / max(c.speed, 1e-6)
+                    hi = (se - c.start) / max(c.speed, 1e-6)
+                    gardes = [(k, ct) for k, ct in enumerate(spec["zoom_punch"])
+                              if lo <= ct <= hi]
+                    sub_spec = dict(spec)
+                    sub_spec["zoom_punch"] = [round(ct - lo, 3) for _, ct in gardes]
+                    sub_spec["zoom_peaks"] = [spec["zoom_peaks"][k] for k, _ in gardes]
+                    if not sub_spec["zoom_punch"]:
+                        sub_spec.pop("zoom_punch"); sub_spec.pop("zoom_peaks")
+                _extract(c.video, ss, max(0.05, se - ss), sp, w, h, fps, vertical,
+                         speed=c.speed, crop=c.crop, spec=sub_spec)
+                subs.append(sp)
+            part = Path(_concat_hard(subs, tmp / f"part{i:03d}_glued.mp4"))
+        else:
+            _extract(c.video, c.start, dur, part, w, h, fps, vertical,
+                     speed=c.speed, crop=c.crop, spec=spec)
         if sfx and rel:                      # SFX punch (option indépendante)
             part = _add_sfx(part, rel, tmp, i)
         real = ffprobe(part)["duration"]

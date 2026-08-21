@@ -39,15 +39,30 @@ scoring:
 
 editing:
   lead_in_s: 3.0                     # margin before the action (capture the START of the engagement, not just the kill)
-  lead_out_s: 1.5                    # margin after
+  lead_out_s: 1.2                    # HARD ceiling after the real kill (A1). Was 1.5, plus the
+                                     # banner lag on top = ~1.9 s of dead air in the delivered clip.
+  lead_out_min_s: 1.0                # breathing room ALWAYS kept: the time to see the skull counter
+                                     # tick up. Cutting the instant the noise stops steals the payoff.
+  banner_lag_s: 0.4                  # the kill banner shows ~0.4 s AFTER the kill. Subtracted before
+                                     # counting the lead-out, otherwise every clip drags by that much.
+  quiet_ratio: 0.25                  # "quiet" = below this FRACTION of the action's own peak. Relative,
+                                     # never absolute: a pistol fight and a rocket fight differ by 20 dB.
+  quiet_hold_s: 0.35                 # it must STAY quiet this long. A 0.1 s lull between bursts is not
+                                     # the end of the fight.
+  dead_gap_min_s: 3.5                # an internal silent stretch longer than this, with no event, is
+                                     # excised and the active sub-segments are glued back into ONE clip.
+  dead_gap_pad_s: 0.4                # given back on each side of an excision: the tail of one burst and
+                                     # the run-up to the next are part of the action.
+  beat_snap_max_s: 0.1               # the beat may pull the end EARLIER by at most this, never later.
   death_guard_s: 0.4                 # death-trim: cut the segment X s BEFORE you go down/die
   min_clip_s: 4.0
   max_clip_s: 30.0                   # a full action (kill -> reposition -> 1v2) can last this long
   min_total_seconds: 30
   max_total_seconds: 120             # 2 min max
   ending: none                       # auto = end on the strongest moment (not necessarily the victory) | victory | none
-  order: hook                        # hook (big moment up front) | build_up | chronological
-  beat_sync: true                    # align cuts to the music tempo
+  order: chronological               # chronological (default, A5) | hook (big moment up front) | build_up
+  beat_sync: false                   # OFF by default (A5). The cut follows the ACTION; the beat is an
+                                     # ornament, and an ornament never moves a cut later.
   music_volume: 0.35                 # music as a light background
   game_audio_volume: 1.0             # keep voices / prox chat well present
 

@@ -8,13 +8,25 @@ from __future__ import annotations
 
 from typing import List
 
+from .cutting import excise_dead_gaps, resolve_end, snap_to_beat
 from .models import Candidate, Event
 
 KILLY = {"kill", "knock", "elim"}
 KILL_VALUE = {"elim": 1.0, "kill": 1.0, "knock": 0.6}
 
 
-def build_candidates(events: List[Event], video_duration: float, cfg: dict) -> List[Candidate]:
+def build_candidates(events: List[Event], video_duration: float, cfg: dict,
+                     env=None, beats=()) -> List[Candidate]:
+    """`env` = enveloppe d'énergie (audio.energy_envelope), `beats` = temps de la musique.
+
+    Les deux sont OPTIONNELS et le résultat reste correct sans eux : on retombe sur le
+    lead-out fixe et sur un clip d'un seul tenant. Un pipeline sans audio ne doit pas
+    rendre des clips faux, il doit rendre des clips moins fins.
+
+    Note : `cutting.compute_segments` compose C4+A4+C5 d'une traite, mais ici les
+    clamps min/max et le death-trim s'intercalent ENTRE la fin et l'excision. On appelle
+    donc les trois briques dans le même ordre plutôt que la composition toute faite.
+    """
     sc = cfg["scoring"]
     ed = cfg["editing"]
     ev = sorted(events, key=lambda e: e.t)
@@ -71,10 +83,29 @@ def build_candidates(events: List[Event], video_duration: float, cfg: dict) -> L
         # tu tues 8 s plus tard -> même cluster (fenêtre merge_gap_s = 15 s) ->
         # `raw_start` valait ta mise à terre, et le clip S'OUVRAIT DESSUS.
         action_start = min(non_death) if non_death else c["raw_start"]
+        death_guard = ed.get("death_guard_s", 0.4)
         start = max(0.0, action_start - ed["lead_in_s"])
-        end = min(video_duration, action_end + ed["lead_out_s"])
+        # C4 : la fin est ancrée sur la fin RÉELLE de l'action (retard du bandeau
+        # retiré, chute d'énergie audio), plus sur `action_end + délai fixe`.
+        end = resolve_end(action_end, env, cfg, video_duration)
+        end = snap_to_beat(end, beats, cfg)
         if end - start < ed["min_clip_s"]:
-            end = min(video_duration, start + ed["min_clip_s"])
+            # On rallonge par le DÉBUT, pas par la fin. Rallonger la fin remettrait
+            # exactement le temps mort que C4 vient de supprimer : un clip d'un seul
+            # kill avec lead_in 3 s finissait à start+4 s, soit 1,4 s après le kill,
+            # au-dessus du plafond A1 de 1,2 s. Trouvé par le test de câblage, pas
+            # par relecture -- le clamp est plus vieux que la règle qu'il cassait.
+            manque = ed["min_clip_s"] - (end - start)
+            # Plancher : jamais avant une mort qui précède l'action. La règle d'Alex
+            # (« ne me montre pas en train de crever ») prime sur la durée minimale ;
+            # sans ce plancher, rallonger par le début rouvrait le clip sur sa mise à
+            # terre — le défaut même que le death-trim existe pour empêcher.
+            morts_avant = [e.t for e in c["events"]
+                           if e.type == "death" and e.t < action_start]
+            plancher = max(morts_avant) + death_guard if morts_avant else 0.0
+            start = max(plancher, start - manque)
+            if end - start < ed["min_clip_s"]:      # bloqué par le plancher : plus le choix
+                end = min(video_duration, start + ed["min_clip_s"])
         if end - start > ed["max_clip_s"]:
             end = start + ed["max_clip_s"]
 
@@ -82,15 +113,19 @@ def build_candidates(events: List[Event], video_duration: float, cfg: dict) -> L
         # les clamps : le segment se termine AVANT que tu sois à terre/mort. On coupe
         # `death_guard_s` avant l'apparition de l'état "à terre". Si ça rend le clip court,
         # tant pis : mieux vaut court que de te montrer en train de crever.
-        death_guard = ed.get("death_guard_s", 0.4)
         deaths_after = sorted(e.t for e in c["events"] if e.type == "death" and e.t > start)
         if deaths_after:
             end = min(end, deaths_after[0] - death_guard)
 
         kill_times = [e.t for e in c["events"] if e.type in KILLY and e.t < end]
+        # C5 : APRÈS les clamps et le death-trim, sinon l'excision travaillerait sur
+        # une fenêtre qui contient encore du temps mort de fin, et le prendrait pour
+        # un trou interne.
+        segs = excise_dead_gaps(start, end, [e.t for e in c["events"]], env, cfg)
         cands.append(Candidate(c["events"][0].video, start, end, score,
                                n_kills, has_victory, has_speech, kinds,
-                               kill_times=kill_times))
+                               kill_times=kill_times,
+                               segments=segs if len(segs) > 1 else []))
     return cands
 
 

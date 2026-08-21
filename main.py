@@ -23,7 +23,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 import yaml
 
-from wzmontage.audio import detect_action_peaks, extract_audio, transcribe_voice
+from wzmontage.audio import (detect_action_peaks, energy_envelope, extract_audio,
+                             transcribe_voice)
 from wzmontage.killdetect import detect_kill_banners
 from wzmontage.models import Candidate
 from wzmontage.montage import build_montage
@@ -263,16 +264,20 @@ def main() -> None:
             events += detect_victory(
                 v, tuple(cfg["vision"]["victory_region"]), fps=info["fps"])
 
+        env = None
         with tempfile.TemporaryDirectory() as td:
             wav = Path(td) / "a.wav"
             extract_audio(v, wav, sr=cfg["audio"]["sr"])
+            # Calculée ICI, tant que le wav existe : le dossier temporaire disparaît
+            # à la sortie du bloc, et `build_candidates` est appelé après.
+            env = energy_envelope(wav, sr=cfg["audio"]["sr"])
             # Les pics audio ne génèrent un extrait que si activés : par défaut les
             # KILLS sont la colonne vertébrale (l'audio ne déclenche pas seul).
             if cfg["audio"].get("use_action_peaks", False):
                 events += detect_action_peaks(
                     wav, v, sr=cfg["audio"]["sr"],
                     percentile=cfg["audio"]["percentile"],
-                    min_gap=cfg["audio"]["min_gap_s"])
+                    min_gap=cfg["audio"]["min_gap_s"], env=env)
             if not args.no_voice:
                 print("  voix : transcription (whisper)...")
                 segs, sev = transcribe_voice(
@@ -282,7 +287,15 @@ def main() -> None:
                     speech_by_video[str(v)] = segs
                     events += sev
 
-        cands = build_candidates(events, info["duration"], cfg)
+        # ponytail: `beats` reste vide, et ce n'est PAS un oubli. Les beats renvoyés par
+        # analyze_music sont en temps MUSIQUE ; les fins de clip sont en temps VIDÉO.
+        # Les rapprocher ici callerait des coupes sur des instants qui n'ont aucun
+        # rapport avec ce que le spectateur entendra. Le seul endroit correct est
+        # l'assemblage, où l'offset de chaque clip dans la piste est connu.
+        # `cutting.snap_to_beat` porte déjà la garantie A4 (<= 100 ms, jamais plus
+        # tard) et est le seul chemin : le jour où l'assemblage l'appelle, la règle
+        # est déjà écrite et testée.
+        cands = build_candidates(events, info["duration"], cfg, env=env)
         print(f"  → {len(cands)} moments candidats")
         all_cands += cands
 

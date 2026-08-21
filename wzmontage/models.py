@@ -38,6 +38,10 @@ class Candidate:
     speed: float = 1.0           # 1.0 = normal ; >1 = accéléré (gameplay)
     is_intro: bool = False       # segment d'intro (casteurs) : PAS de musique dessus, audio original gardé
     kill_times: list = field(default_factory=list)  # instants (clip time) des kills du cluster -> effets fx
+    # C5 : sous-segments actifs quand un trou mort a été excisé. Vide = clip d'un seul
+    # tenant. Ils sont recollés en UN clip au rendu, jamais rendus en clips séparés :
+    # le spectateur doit voir une action continue, pas deux extraits.
+    segments: list = field(default_factory=list)
 
     @property
     def duration(self) -> float:
