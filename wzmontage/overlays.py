@@ -11,6 +11,8 @@ jamais automatiques.
 """
 from __future__ import annotations
 
+import os
+
 DEFAULT_FONT = "assets/fonts/impact.ttf"  # relatif au cwd : évite le ':' du lecteur Windows
 
 
@@ -66,6 +68,18 @@ def text_overlay(t0: float, t1: float, text: str | None = None,
                  fade: float = 0.1) -> str:
     """Fragment drawtext : texte visible [t0,t1] avec fade-in `fade`. Fournir `text`
     (interne, échappé) OU `textfile` (recommandé pour le texte utilisateur)."""
+    # La police n'est PAS dans le depot : `impact.ttf` est une police systeme Windows,
+    # que `.gitignore` exclut parce que le depot est public. Sans cette garde, un clone
+    # frais fabrique un filtre qui pointe un fichier absent, l'echec part chez ffmpeg,
+    # et il a deja ete avale une fois par un `except Exception`. On echoue ici, ou le
+    # fait est connu, avec le geste de reparation dans le message.
+    if not os.path.exists(fontfile):
+        raise FileNotFoundError(
+            "police introuvable : %s -- "
+            "le depot ne redistribue aucune police (voir assets/README.md). "
+            "Deposer un .ttf a ce chemin, ou passer fontfile=<chemin d'une police locale>."
+            % fontfile
+        )
     if textfile:
         src = f"textfile={_escape_path(textfile)}"
     elif text is not None:

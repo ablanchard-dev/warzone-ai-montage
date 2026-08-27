@@ -168,3 +168,27 @@ def test_ffmpeg_accepte_une_police_en_chemin_absolu(tmp_path):
         cwd=RACINE, capture_output=True, text=True)
     assert sortie.exists() and sortie.stat().st_size > 0, \
         f"une police en chemin absolu casse le graphe : {r.stderr.strip()[:200]}"
+
+
+# --- la police absente doit CRIER, pas produire un filtre mort ----------------
+# `assets/fonts/impact.ttf` est une police systeme Windows que `.gitignore` exclut :
+# le depot est public et ne redistribue rien. Un clone frais n'a donc AUCUNE police.
+# Avant le 27/08, `text_overlay` fabriquait quand meme le filtre, et l'echec partait
+# chez ffmpeg -- ou un `except Exception` l'avait deja avale une fois. Ce test tombe
+# si la garde disparait.
+
+def test_police_absente_leve_au_lieu_de_produire_un_filtre_mort(tmp_path):
+    manquante = tmp_path / "pas-de-police.ttf"
+    assert not manquante.exists()
+    with pytest.raises(FileNotFoundError) as e:
+        text_overlay(0.0, 1.0, text="BOOM", fontfile=str(manquante))
+    # le message doit porter le geste de reparation, pas seulement le constat
+    assert "fontfile=" in str(e.value)
+
+
+def test_la_police_par_defaut_est_verifiee_elle_aussi(tmp_path, monkeypatch):
+    """Le chemin par defaut est RELATIF au cwd : depuis un autre dossier, il n'existe
+    pas. C'est exactement la situation d'un clone frais lance ailleurs."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        text_overlay(0.0, 1.0, text="BOOM")
