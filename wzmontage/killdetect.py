@@ -157,6 +157,28 @@ def merge_knock_confirm(events: List[Event], window_s: float = 10.0) -> List[Eve
     return out
 
 
+def select_banner_events(samples, classify, on_frac: float, min_gap: float):
+    """PUR. samples = [(t, fraction rouge)] ; classify(t) -> knock/elim/kill/death/skip.
+
+    Chaque front montant rouge est un candidat, l'OCR tranche, et l'ecart minimal ne
+    s'applique qu'entre bandeaux ACCEPTES. Avant, `min_gap` partait de tout candidat :
+    un pic rouge rejete (objet rouge du decor) masquait le vrai bandeau 1 s plus tard
+    (mesure 16/09, kill perdu a 85,4 s).
+    """
+    events = []
+    active = False
+    last_kept = -1e9
+    for t, frac in samples:
+        now = frac >= on_frac
+        if now and not active and (t - last_kept) >= min_gap:
+            kind = classify(t)
+            if kind in ("knock", "elim", "kill", "death"):
+                events.append((t, kind))
+                last_kept = t
+        active = now
+    return events
+
+
 def detect_kill_banners(video_path, region=(0.79, 0.11, 0.20, 0.13),
                         sample_fps: float = 5.0, fps: float | None = None,
                         min_gap: float = 1.5, on_frac: float = 0.33,
@@ -177,8 +199,11 @@ def detect_kill_banners(video_path, region=(0.79, 0.11, 0.20, 0.13),
     import json
     import os
 
+    # OCR dans la cle : sans lui tout bandeau vaut "kill". Mesure 16/09 : apres installation
+    # de rapidocr, le cache resservait en silence la detection aveugle, sans l'avertissement.
+    # "v4-fronts" : invalide les caches calcules avec l'ancienne selection des fronts.
     params = (region, sample_fps, fps, min_gap, on_frac, ocr_offset,
-              death_scan_s, death_scan_fps, merge_confirm_s, "v3-knock-elim")
+              death_scan_s, death_scan_fps, merge_confirm_s, "v4-fronts", bool(_get_ocr()))
     cpath = None
     try:
         st = os.stat(video_path)
@@ -200,11 +225,9 @@ def detect_kill_banners(video_path, region=(0.79, 0.11, 0.20, 0.13),
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     step = max(1, int(round(fps / sample_fps)))
 
-    # --- Passe 1 : fronts montants rouges -> instants candidats ---
-    cands: List[float] = []
+    # --- Passe 1 : fraction rouge de la zone bandeau, echantillonnee ---
+    samples = []
     idx = 0
-    last = -1e9
-    active = False
     while True:
         if not cap.grab():
             break
@@ -212,34 +235,24 @@ def detect_kill_banners(video_path, region=(0.79, 0.11, 0.20, 0.13),
             ok, frame = cap.retrieve()
             if not ok:
                 break
-            t = idx / fps
             h, w = frame.shape[:2]
             x, y, rw, rh = region
             roi = frame[int(y * h):int((y + rh) * h), int(x * w):int((x + rw) * w)]
-            frac = _red_fraction(roi) if roi.size else 0.0
-            now = frac >= on_frac
-            if now and not active and (t - last) >= min_gap:
-                cands.append(t)
-                last = t
-            active = now
+            samples.append((idx / fps, _red_fraction(roi) if roi.size else 0.0))
         idx += 1
 
     # --- Passe 2 : OCR un peu après chaque front (bandeau lisible) -> classer ---
-    events: List[Event] = []
-    for t in cands:
+    def classify(t: float) -> str:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round((t + ocr_offset) * fps)))
         ok, frame = cap.read()
         if not ok:                                  # repli : la frame du front
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t * fps)))
             ok, frame = cap.read()
-        if not ok:
-            continue
-        kind = _classify_banner(frame)              # OCR : knock ? confirm ? pote ? ta mort ?
-        if kind in ("knock", "elim", "kill"):
-            events.append(Event(str(video_path), float(t), kind, 1.0))
-        elif kind == "death":
-            events.append(Event(str(video_path), float(t), "death", 1.0))
-        # 'skip' (pote / faux positif) -> ignoré
+        # OCR : knock ? confirm ? pote ? ta mort ? ('skip' = pote / faux positif)
+        return _classify_banner(frame) if ok else "skip"
+
+    events: List[Event] = [Event(str(video_path), float(t), kind, 1.0)
+                           for t, kind in select_banner_events(samples, classify, on_frac, min_gap)]
 
     # --- Passe 3 : ES-TU MORT JUSTE APRÈS UN KILL ? (le cas "je kill puis je suis dead") ---
     # L'état "à terre" (prompt de réanimation au centre-bas) n'est PAS un bandeau rouge
