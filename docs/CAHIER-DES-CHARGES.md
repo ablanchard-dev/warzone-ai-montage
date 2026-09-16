@@ -90,7 +90,7 @@ Chaque pilier = un sous-projet avec son propre plan (spec → plan → implémen
 - **Effets OFF par défaut** ; aucun effet sans demande explicite (chat/flag).
 - **Logique de décision = fonctions pures, déterministes, testées** (TDD) ; mêmes entrées → mêmes décisions.
 - **Vérification adverse (red team)** à la fin de chaque sous-projet.
-- **Environnement** : venv `C:\Users\blanc\bottrade\venv` (cv2/librosa) + ffmpeg WinGet. En arrière-plan, PATH à exporter (ni python ni ffmpeg par défaut).
+- **Environnement** : venv Python local (cv2/librosa) + ffmpeg WinGet. En arrière-plan, PATH à exporter (ni python ni ffmpeg par défaut).
 
 ---
 

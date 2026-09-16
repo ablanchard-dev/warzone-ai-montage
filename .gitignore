@@ -51,3 +51,6 @@ Thumbs.db
 # suivis : ils decrivent ce qu'il faut, sans le livrer.
 assets/fonts/*.ttf
 assets/fonts/*.otf
+
+# notes de travail locales, hors depot public
+docs/notes-internes/

@@ -1,8 +1,8 @@
 # Cahier des charges — Outil de montage IA Warzone/CoD pour TikTok (app web)
 
 Date : 2026-06-15
-Statut : spécification validée en brainstorming, à relire avant plan d'implémentation
-Code existant : `C:\Users\blanc\wzmontage\` (package `wzmontage/`, `main.py`, `config.yaml`)
+Statut : spécification validée, à relire avant plan d'implémentation
+Code existant : ce dépôt (package `wzmontage/`, `main.py`, `config.yaml`)
 
 ---
 
