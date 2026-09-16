@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List
 
-from .cutting import snap_to_beat
+from .cutting import snap_to_beat, source_to_rendered
 from .models import Candidate, SpeechSegment
 from .overlays import _escape_path
 from .utils import ffprobe, run
@@ -292,9 +292,11 @@ def build_montage(selected: List[Candidate], music_path, output_path, cfg: dict,
             for seg in speech_by_video.get(c.video, []):
                 if seg.end <= c.start or seg.start >= c.end:
                     continue
-                s = max(seg.start, c.start) - c.start + offset
-                e = min(seg.end, c.end) - c.start + offset
-                srt_lines.append((s, e, seg.text))
+                # Temps RENDU (trous excises + vitesse), borne a la duree reelle du part.
+                s = source_to_rendered(max(seg.start, c.start), c.start, c.segments, c.speed)
+                e = min(source_to_rendered(min(seg.end, c.end), c.start, c.segments, c.speed), real)
+                if e > s:
+                    srt_lines.append((s + offset, e + offset, seg.text))
         parts.append(part)
         offset += real
 

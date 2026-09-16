@@ -100,6 +100,27 @@ def snap_to_beat(end: float, beats: Sequence[float], cfg: dict) -> float:
     return max(earlier) if earlier else end
 
 
+def source_to_rendered(t: float, start: float, segments: Sequence[Tuple[float, float]],
+                       speed: float) -> float:
+    """Instant `t` du clip source -> instant dans le clip RENDU (local, 0 = debut du clip).
+
+    Tient compte des trous morts excises (C5, `segments`) et de la vitesse. Un instant qui
+    tombe dans un trou retombe sur la reprise. Sert aux sous-titres : calcules lineairement,
+    ils glissaient apres chaque trou et trainaient derriere le son avec --speed.
+    """
+    sp = max(speed, 1e-6)
+    if not segments:
+        return max(0.0, t - start) / sp
+    rendered = 0.0
+    for ss, se in segments:
+        if t < ss:
+            return rendered / sp
+        if t <= se:
+            return (rendered + (t - ss)) / sp
+        rendered += se - ss
+    return rendered / sp
+
+
 def excise_dead_gaps(start: float, end: float, event_times: Sequence[float],
                      env: Optional[Envelope], cfg: dict) -> List[Tuple[float, float]]:
     """C5 — un trou mort INTERNE est retiré, et les sous-segments actifs recollés.
