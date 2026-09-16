@@ -30,7 +30,7 @@ from wzmontage.models import Candidate
 from wzmontage.montage import build_montage
 from wzmontage.scoring import build_candidates, select_global
 from wzmontage.utils import ensure_tools, ffprobe, list_videos
-from wzmontage.vision import detect_victory, detect_visual_events, load_templates
+from wzmontage.vision import detect_victory, detect_visual_events, load_templates, merge_template_events
 
 
 FORMATS = {
@@ -256,10 +256,11 @@ def main() -> None:
 
         if templates:
             print("  vision : kills / mises à terre (templates)...")
-            events += detect_visual_events(
+            # Fusion, pas addition : icone et bandeau voient le meme kill (sinon compte double).
+            events = merge_template_events(events, detect_visual_events(
                 v, templates, tuple(cfg["vision"]["search_region"]),
                 threshold=cfg["vision"]["threshold"],
-                sample_fps=cfg["vision"]["sample_fps"], fps=info["fps"])
+                sample_fps=cfg["vision"]["sample_fps"], fps=info["fps"]))
         if use_victory:
             events += detect_victory(
                 v, tuple(cfg["vision"]["victory_region"]), fps=info["fps"])

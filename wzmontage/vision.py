@@ -42,6 +42,20 @@ def _crop(frame, region):
                  max(0, int(x * w)):int((x + rw) * w)]
 
 
+def merge_template_events(banner_events: List[Event], template_events: List[Event],
+                          window_s: float = 1.5) -> List[Event]:
+    """PUR. Fusionne le detecteur d'icones (templates, opt-in) avec celui des bandeaux.
+
+    Les deux regardent le meme bandeau rouge. Additionner leurs evenements comptait un seul
+    kill deux fois (bonus multikill, « 2K », double zoom) et reclassait en kill une mort que
+    l'OCR avait identifiee. Le bandeau OCR fait foi : une icone a moins de `window_s` d'un
+    evenement bandeau est ecartee ; seule une icone isolee apporte un kill en plus.
+    """
+    kept = [e for e in template_events
+            if all(abs(e.t - b.t) > window_s for b in banner_events)]
+    return list(banner_events) + kept
+
+
 def detect_visual_events(video_path, templates, search_region,
                          threshold: float = 0.72, sample_fps: float = 4.0,
                          fps: float | None = None, min_gap: float = 0.6) -> List[Event]:
