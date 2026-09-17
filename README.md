@@ -79,9 +79,16 @@ brew install ffmpeg tesseract                # macOS
 ## Installation
 
 ```bash
-pip install -r requirements.txt
-pip install faster-whisper   # optional: voice + subtitles
-pip install pytesseract      # optional: victory detection
+pip install -r requirements.txt   # includes faster-whisper (voice) and RapidOCR (banner text)
+pip install pytesseract           # optional: victory detection
+```
+
+First run check without game footage: a clip with no kills stops with an explicit
+"no moment detected" message; forcing a segment renders a real montage.
+
+```bash
+ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine -t 30 -pix_fmt yuv420p clips/test.mp4
+python main.py clips --no-voice --add "test@5-15" -f vertical -o montage.mp4
 ```
 
 ## Usage
