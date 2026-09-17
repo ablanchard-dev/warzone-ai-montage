@@ -34,8 +34,22 @@ def test_un_punch_wav_present_est_utilise_tel_quel(tmp_path, monkeypatch):
     assert le_sien.read_bytes() == b"RIFF-son-d-alex"
 
 
+def test_un_clip_sans_piste_audio_saute_le_sfx_au_lieu_de_faire_planter_le_montage(tmp_path, monkeypatch, capsys):
+    # Revue 17/09 : `_extract` ne copie l'audio que s'il existe (-map 0:a?). Sur une source muette,
+    # le filtre [0:a]asplit...amix echouait dans ffmpeg et arretait TOUT le montage.
+    monkeypatch.setattr(montage, "_PUNCH", tmp_path / "absent" / "punch.wav")
+    monkeypatch.setattr(montage, "has_audio", lambda p: False)
+    commandes = []
+    monkeypatch.setattr(montage, "run", lambda cmd: commandes.append(cmd))
+    part = tmp_path / "clip_muet.mp4"
+    assert montage._add_sfx(part, [0.5], tmp_path, 0) == part
+    assert commandes == []
+    assert "audio" in capsys.readouterr().out.lower()
+
+
 def test_add_sfx_mixe_bien_un_son_quand_le_fichier_du_depot_manque(tmp_path, monkeypatch):
     monkeypatch.setattr(montage, "_PUNCH", tmp_path / "absent" / "punch.wav")
+    monkeypatch.setattr(montage, "has_audio", lambda p: True)
     commandes = []
     monkeypatch.setattr(montage, "run", lambda cmd: commandes.append(cmd))
     part = tmp_path / "clip.mp4"

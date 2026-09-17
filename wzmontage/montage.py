@@ -13,7 +13,7 @@ from typing import Dict, List
 from .cutting import snap_to_beat, source_to_rendered
 from .models import Candidate, SpeechSegment
 from .overlays import _escape_path
-from .utils import ffprobe, run
+from .utils import ffprobe, has_audio, run
 
 
 def analyze_music(music_path) -> dict:
@@ -101,6 +101,11 @@ def _add_sfx(part, rel_times, tmp, i, gain: float = 3.5):
     Post-étape isolée : vidéo COPIÉE (rapide), n'altère pas le rendu vidéo. OPTIONNEL.
     Renvoie le nouveau chemin (ou `part` inchangé s'il n'y a aucun kill)."""
     if not rel_times:
+        return part
+    if not has_audio(part):
+        # Source enregistree sans son : le filtre [0:a]... n'aurait rien a lire et ffmpeg arreterait
+        # tout le montage. On saute le SFX de ce clip, et on le dit.
+        print(f"  [sfx] {Path(part).name} : pas de piste audio, SFX ignore pour ce clip")
         return part
     punch = _punch_source(tmp)
     n = len(rel_times)

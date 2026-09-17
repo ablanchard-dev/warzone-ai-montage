@@ -49,6 +49,13 @@ def ffprobe(path) -> dict:
     }
 
 
+def has_audio(path) -> bool:
+    """Vrai si le fichier a au moins une piste audio (une source enregistree sans son n'en a pas)."""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "a",
+           "-show_entries", "stream=index", "-of", "csv=p=0", str(path)]
+    return bool(subprocess.run(cmd, capture_output=True, text=True).stdout.strip())
+
+
 def list_videos(path) -> list[Path]:
     """Renvoie la liste des vidéos d'un dossier (récursif) ou un seul fichier."""
     p = Path(path)
