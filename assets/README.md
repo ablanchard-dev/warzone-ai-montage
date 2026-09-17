@@ -7,10 +7,13 @@ Assets utilisés par les overlays/SFX. Deux origines :
   par utilisateur, isolés, validés (type réel via ffprobe, taille bornée) — cf. sécurité.
 
 ## Catégories
-- `fonts/` — polices pour les overlays texte (drawtext). Bundlé : `impact.ttf` (hype).
+- `fonts/` — polices pour les overlays texte (drawtext). **Non versionnée** : `impact.ttf` est une
+  police système Windows, `.gitignore` l'exclut. Sur un clone, déposer un `.ttf` à ce chemin pour
+  les textes incrustés (sinon `text_overlay` lève une erreur qui le dit).
 - `anime/` — overlays thématiques (Uchiha/sharingan, flammes…). PNG/GIF transparents.
 - `memes/` — images/GIF drôles.
-- `sfx/` — sons d'impact / risers. Bundlé : `punch.wav` (thump grave amorti).
+- `sfx/` — sons d'impact / risers. **Non versionné** (`.gitignore` exclut les `.wav`) : si
+  `punch.wav` manque, `--sfx` génère un thump grave amorti au même niveau dans le dossier du rendu.
 
 ## Règle
 Toute référence d'asset dans une opération de la timeline est résolue **uniquement**

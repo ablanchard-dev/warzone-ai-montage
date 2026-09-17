@@ -38,7 +38,8 @@ def test_le_chemin_des_sous_titres_est_echappe_dans_le_filtre():
 def test_les_autres_chemins_restent_des_ARGUMENTS():
     """Garde-fou de portée : si un futur changement déplaçait la musique ou le
     punch dans un filtergraph, il faudrait les échapper aussi."""
-    for motif in (r'"-i", str\(music_path\)', r'"-i", str\(_PUNCH\)'):
+    # 17/09 : le son de kill passe par `punch = _punch_source(tmp)` (genere si le .wav manque).
+    for motif in (r'"-i", str\(music_path\)', r'"-i", str\(punch\)'):
         assert re.search(motif, SOURCE_MONTAGE), \
             f"{motif} n'est plus passé en argument : vérifier l'échappement"
 

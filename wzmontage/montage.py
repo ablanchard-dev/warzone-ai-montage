@@ -69,12 +69,40 @@ def _extract(video, start: float, dur: float, out, w, h, fps, vertical,
 _PUNCH = Path(__file__).resolve().parent.parent / "assets" / "sfx" / "punch.wav"
 
 
+def _punch_source(tmp) -> Path:
+    """Le son de kill à mixer. `assets/sfx/punch.wav` s'il existe (le son choisi reste intact) ;
+    sinon un « thump » grave amorti généré ici, dans le dossier du rendu. `.gitignore` exclut les
+    .wav : sur un clone neuf le fichier manquait et `--sfx` ne faisait RIEN, sans un mot."""
+    if _PUNCH.exists():
+        return _PUNCH
+    import math
+    import struct
+    import wave
+    out = Path(tmp) / "punch_generated.wav"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rate, dur = 44100, 0.18
+        frames = bytearray()
+        for n in range(int(rate * dur)):
+            t = n / rate
+            freq = 55 + 70 * math.exp(-t * 30)          # attaque qui descend vers le grave
+            amp = 0.4 * math.exp(-t * 22)               # decroissance rapide ; 0.4 = crete du punch.wav d'origine (~12 300)
+            frames += struct.pack("<h", int(32767 * amp * math.sin(2 * math.pi * freq * t)))
+        with wave.open(str(out), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(bytes(frames))
+    return out
+
+
 def _add_sfx(part, rel_times, tmp, i, gain: float = 3.5):
     """Mixe le SFX punch sur l'audio du segment à chaque kill (rel_times en s).
     Post-étape isolée : vidéo COPIÉE (rapide), n'altère pas le rendu vidéo. OPTIONNEL.
-    Renvoie le nouveau chemin (ou `part` inchangé si pas de SFX dispo)."""
-    if not rel_times or not _PUNCH.exists():
+    Renvoie le nouveau chemin (ou `part` inchangé s'il n'y a aucun kill)."""
+    if not rel_times:
         return part
+    punch = _punch_source(tmp)
     n = len(rel_times)
     split = f"[1:a]asplit={n}" + "".join(f"[s{k}]" for k in range(n)) + ";"
     delays = "".join(
@@ -84,7 +112,7 @@ def _add_sfx(part, rel_times, tmp, i, gain: float = 3.5):
     fc = split + delays + f"{mix_in}amix=inputs={n + 1}:duration=first:normalize=0[a]"
     out = tmp / f"clip_{i:03d}_sfx.mp4"
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-         "-i", str(part), "-i", str(_PUNCH), "-filter_complex", fc,
+         "-i", str(part), "-i", str(punch), "-filter_complex", fc,
          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", str(out)])
     return out
 
