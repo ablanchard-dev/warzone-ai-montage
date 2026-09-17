@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 from . import effects, overlays
+from .utils import valider_crop
 
 FORMATS = {"vertical": (1080, 1920), "fullscreen": (1920, 1080), "square": (1080, 1080),
            "facecam_top": (1080, 1920)}
@@ -79,7 +80,7 @@ def build_segment_filtergraph(spec: dict, src_w: int, src_h: int, fps: int = 60,
     elif fmt == "facecam_top":  # facecam/stream en haut + gameplay blur-fill en bas
         top_h = spec.get("facecam_h", 600)
         bot_h = out_h - top_h
-        fc_crop = spec.get("facecam_crop", "960:540:480:0")
+        fc_crop = valider_crop(spec.get("facecam_crop", "960:540:480:0"), "facecam_crop")
         graph = (
             f"[0:v]{speed_chain}split=3[fc][bg][fg];"
             f"[fc]crop={fc_crop},scale={out_w}:{top_h},setsar=1[top];"

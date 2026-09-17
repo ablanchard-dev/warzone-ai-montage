@@ -13,7 +13,7 @@ from typing import Dict, List
 from .cutting import snap_to_beat, source_to_rendered
 from .models import Candidate, SpeechSegment
 from .overlays import _escape_path
-from .utils import ffprobe, has_audio, run
+from .utils import ffprobe, has_audio, run, valider_crop
 
 
 def analyze_music(music_path) -> dict:
@@ -27,7 +27,9 @@ def analyze_music(music_path) -> dict:
 
 def _vfilter(w: int, h: int, fps: int, vertical: bool,
              crop: str | None = None, speed: float = 1.0) -> str:
-    pre = f"crop={crop}," if crop else ""               # crop optionnel (ex: facecams casteurs)
+    # Le crop entre BRUT dans le graphe (ses `:` sont des separateurs ffmpeg, donc
+    # inechappables) : la seule protection est de n'accepter que la forme attendue.
+    pre = f"crop={valider_crop(crop, '--intro-crop')}," if crop is not None else ""
     sp = f",setpts=PTS/{speed}" if speed and speed != 1.0 else ""   # accélération
     if vertical:
         # fond flou plein cadre + vidéo centrée (look TikTok/Shorts)

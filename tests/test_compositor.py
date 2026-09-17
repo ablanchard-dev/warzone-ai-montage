@@ -129,3 +129,45 @@ def test_le_zoom_utilise_le_framerate_de_la_SOURCE_pas_celui_de_sortie():
     g30, _ = _graph({"format": "vertical", "zoom_punch": [1.0]}, fps=60, src_fps=30)
     g60, _ = _graph({"format": "vertical", "zoom_punch": [1.0]}, fps=60, src_fps=60)
     assert g30 != g60, "le graphe ignore src_fps : le zoom sera ralenti"
+
+
+# ---------------------------------------------------------------------------
+# 17/09/2026 — LES DEUX CROPS ENTRENT BRUTS DANS LE FILTERGRAPH
+#
+# `--intro-crop W:H:X:Y` est une option de ligne de commande, et `facecam_crop` une clé
+# de spec : les deux sont recopiées telles quelles dans `crop={...}`. Elles contiennent
+# des `:` par construction, donc on ne peut pas les échapper — il faut les VALIDER.
+#
+# Ce que ça coûte aujourd'hui : une faute de frappe (`1920x1080`) part chez ffmpeg et
+# revient en erreur de graphe, loin de la cause ; et une valeur qui contient `,` ou `[`
+# ajoute des filtres au graphe sans que rien ne le dise. Le module applique déjà la
+# bonne doctrine pour la police : « on échoue ici, où le fait est connu, avec le geste
+# de réparation dans le message ».
+
+import wzmontage.montage as montage_mod  # noqa: E402
+
+
+@pytest.mark.parametrize("mauvais", [
+    "1920x1080",                     # faute de frappe courante : des x au lieu des :
+    "960:540:480",                   # trois champs au lieu de quatre
+    "960:540:480:0,drawbox=c=red@1", # une virgule = un filtre en plus dans le graphe
+    "960:540:480:[v]",               # un séparateur de flux
+    "-1:540:480:0",                  # dimension négative
+    "",                              # vide
+])
+def test_un_crop_malforme_est_refuse_avant_ffmpeg(mauvais):
+    with pytest.raises(ValueError) as e:
+        montage_mod._vfilter(1080, 1920, 60, True, crop=mauvais)
+    assert "W:H:X:Y" in str(e.value), "le message doit dire la forme attendue"
+
+
+def test_un_crop_correct_passe_toujours():
+    graphe = montage_mod._vfilter(1080, 1920, 60, True, crop="960:540:480:0")
+    assert "crop=960:540:480:0," in graphe
+
+
+def test_le_crop_de_facecam_de_la_spec_est_valide_lui_aussi():
+    with pytest.raises(ValueError):
+        build_segment_filtergraph(
+            {"format": "facecam_top", "facecam_crop": "960:540:480:0,drawbox=c=red@1"},
+            *SRC)

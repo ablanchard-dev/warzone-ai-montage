@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -72,3 +73,31 @@ def ensure_tools(need_tesseract: bool = False) -> None:
         raise SystemExit(
             "Outils système manquants : " + ", ".join(missing) + " (voir le README)."
         )
+
+
+_CROP_RE = re.compile(r"^\d+:\d+:\d+:\d+$")
+
+
+def valider_crop(valeur: str, origine: str) -> str:
+    """Rend `valeur` si c'est bien un `W:H:X:Y` de nombres, sinon lève.
+
+    Un crop est la SEULE valeur du produit qu'on ne peut pas échapper : elle contient
+    des `:` par construction, et ces `:` doivent rester des séparateurs de ffmpeg. Elle
+    entre donc brute dans le filtergraph, et il n'y a qu'une façon de la rendre sûre —
+    n'accepter que la forme attendue.
+
+    Ce que ça évite, mesuré le 17/09/2026 sur le code d'alors :
+      - `1920x1080` (la faute de frappe naturelle) partait chez ffmpeg et revenait en
+        erreur de graphe, loin de la cause et sans dire quoi corriger ;
+      - `960:540:480:0,drawbox=c=red@1` ajoutait un VRAI `drawbox` au montage, sans que
+        rien ne le signale : une virgule suffit à sortir du filtre.
+
+    Même doctrine que la garde de police dans `overlays.text_overlay` : on échoue ici,
+    où le fait est connu, avec le geste de réparation dans le message.
+    """
+    if not isinstance(valeur, str) or not _CROP_RE.match(valeur):
+        raise ValueError(
+            "%s invalide : %r. Attendu W:H:X:Y, quatre nombres entiers separes par "
+            "des deux-points (ex. 960:540:480:0)." % (origine, valeur)
+        )
+    return valeur
