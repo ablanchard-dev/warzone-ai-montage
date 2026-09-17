@@ -4,7 +4,7 @@
 > clips, combining computer vision (HUD kill detection), audio analysis and speech
 > transcription. **Work in progress** — see what runs out of the box below.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-template%20matching-5C3EE8?logo=opencv&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-render-007808?logo=ffmpeg&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
