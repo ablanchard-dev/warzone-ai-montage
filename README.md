@@ -97,7 +97,33 @@ python main.py ./clips -m music.mp3 --no-vision
 python main.py ./clips -m music.mp3 --no-voice
 ```
 
-Vertical TikTok format: `width: 1080 / height: 1920` in `config.yaml`.
+### Directing the edit
+
+The automatic selection is a first cut. You correct it in words, then re-render (analysis is cached):
+
+```bash
+# Keep the last 17 s of a clip, drop a dead moment, open on the best fight
+python main.py ./clips -m music.mp3 --add "clip3@last:17" --drop "clip1@40-55" --first "clip5@103-120"
+
+# TikTok export: vertical, 45 s max, kill effects, music only
+python main.py ./clips -m music.mp3 -f vertical --max-seconds 45 --fx --audio music
+```
+
+| Option | Effect |
+|---|---|
+| `--add` / `--drop` / `--first` | Force, remove or pin a segment (`clip@A-B` or `clip@last:N`), repeatable |
+| `-f horizontal,vertical,square` | One render per format in the same run |
+| `--max-seconds` | Hard length cap |
+| `--speed 1.15` | Speeds up gameplay (the intro stays at 1x); does not shorten the montage |
+| `--intro PATH` / `--intro-crop` | Intro clip kept at normal speed, optionally cropped (e.g. caster facecams) |
+| `--fx` (= `--zoom` + `--sfx`) | Zoom punch and sound effect on detected kills |
+| `--beat-fx` | Soft zoom pulses on the music beat (needs `-m` and `--zoom`) |
+| `--layout facecam-top` | Vertical layout with the stream on top, gameplay below |
+| `--transitions fade` | Transition between segments (default is a hard cut) |
+| `--audio game\|mix\|music\|clean` | Game + prox-chat, game + music, music only, or silent for a TikTok sound |
+| `--ending auto\|victory\|none` | How the montage ends |
+
+Vertical TikTok format can also be set in `config.yaml` (`width: 1080 / height: 1920`).
 Burned-in prox-chat subtitles: `output.subtitles: true` (Whisper required).
 
 The pipeline runs out of the box with kill-banner detection + voice. HUD template
